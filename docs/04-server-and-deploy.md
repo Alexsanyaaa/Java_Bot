@@ -88,10 +88,10 @@ $k = Read-Host "Gemini key"; ssh root@<IP-сервера> "sed -i s/^GEMINI_API_
 
 ## Выкладка
 
-С компьютера владельца, Git Bash, из папки проекта.
+С компьютера владельца, Git Bash, из клона `Java_Bot`. `<IP-сервера>` в командах — адрес из `server.local.md` (файл лежит рядом с клоном, в git его нет).
 
 ```sh
-cd "/c/Users/467/Desktop/botik/New project"
+cd "/c/Users/467/Desktop/bot/Java_Bot"
 export JAVA_HOME="/c/Users/467/AppData/Local/Programs/Java/jdk-21.0.12.1+1"
 
 # 1. Сборка и тесты (все зелёные, иначе не выкладывать)

@@ -20,7 +20,8 @@
 
 | Что | Где |
 |---|---|
-| Исходники (главная копия) | компьютер владельца: `C:\Users\467\Desktop\botik\New project` |
+| Исходники (главная копия) | GitHub `Alexsanyaaa/Java_Bot`, ветка `main`; у владельца — клон `C:\Users\467\Desktop\bot\Java_Bot` |
+| Адрес сервера | в командах — `<IP-сервера>`; настоящий адрес — в `server.local.md` рядом с клоном (в git не попадает) |
 | Копия исходников на сервере (только для чтения) | `/opt/java-mentor-bot/source/` |
 | Работающий JAR | `/opt/java-mentor-bot/java-mentor-bot.jar` (+ `*.previous.jar` — прошлая версия) |
 | Настройки и ключи | `/etc/java-mentor-bot/mentor.env` (права 600, в логи и чаты не выводить) |

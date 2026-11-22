@@ -2,14 +2,19 @@
 
 ## Окружение
 
-- Главная копия исходников — на компьютере владельца: `C:\Users\467\Desktop\botik\New project`.
+- Главная копия исходников — GitHub `Alexsanyaaa/Java_Bot`, ветка `main`. У владельца — клон
+  `C:\Users\467\Desktop\bot\Java_Bot`, правки делаются в нём. Старая папка `C:\Users\467\Desktop\botik\New project` —
+  архив, там не править.
   На сервере в `/opt/java-mentor-bot/source/` лежит копия только для чтения.
 - JDK 21: `C:\Users\467\AppData\Local\Programs\Java\jdk-21.0.12.1+1`. Сборка — Gradle Wrapper (`./gradlew`).
-- В папке проекта есть пустой git-репозиторий (без коммитов). Историю изменений смотри в [07-history.md](07-history.md).
-- `.env` в папке проекта — локальные настройки, в архивы и на сервер его не класть.
+- Коммиты и push владелец делает сам, тремя командами: `git add -A`, `git commit -m "…"`, `git push origin main`.
+  В сообщениях коммитов — обычный текст, без строк `Co-Authored-By` и упоминаний ИИ-помощников.
+  Почему сделано так, а не иначе, — в [07-history.md](07-history.md).
+- `server.local.md` (адрес сервера) и `.env` (если нужен для локального запуска) — в `.gitignore`: в git, архивы и
+  на сервер их не класть. В командах документации вместо адреса сервера стоит `<IP-сервера>`.
 
 ```sh
-cd "/c/Users/467/Desktop/botik/New project"
+cd "/c/Users/467/Desktop/bot/Java_Bot"
 export JAVA_HOME="/c/Users/467/AppData/Local/Programs/Java/jdk-21.0.12.1+1"
 ./gradlew test             # все тесты (живые пропускаются без переменных)
 ./gradlew test bootJar     # тесты + JAR в build/libs/java-mentor-bot.jar
@@ -51,7 +56,7 @@ deploy/systemd/           служба, сторож памяти, таймер 
 Логика бота — настоящая, Telegram — фейковый, модели и ключи — с сервера (ключи никуда не печатаются):
 
 ```sh
-cd "/c/Users/467/Desktop/botik/New project"
+cd "/c/Users/467/Desktop/bot/Java_Bot"
 export JAVA_HOME="/c/Users/467/AppData/Local/Programs/Java/jdk-21.0.12.1+1"
 eval "$(ssh -o BatchMode=yes root@<IP-сервера> 'grep -E "^(LLM_API_KEY|GROQ_API_KEY|GEMINI_API_KEY|LLM_BASE_URL|LLM_REVIEW_MODELS|LLM_ROUTER_MODELS)=" /etc/java-mentor-bot/mentor.env | sed "s/^/export /"')"
 unset HTTPS_PROXY HTTP_PROXY
@@ -106,9 +111,10 @@ grep -oE "\[(chat|router|review|voice)\][^<]{0,120}" build/test-results/test/TES
 ## Документация и копия исходников на сервере
 
 ```sh
-cd "/c/Users/467/Desktop/botik/New project"
-tar --exclude=.env --exclude=CLAUDE_HANDOFF.md -czf /tmp/mentor-src.tgz \
-    README.md docs src android deploy build.gradle.kts settings.gradle.kts gradle gradlew gradlew.bat .env.example .gitignore
+cd "/c/Users/467/Desktop/bot/Java_Bot"
+tar --exclude=.env --exclude=server.local.md -czf /tmp/mentor-src.tgz \
+    README.md docs src android deploy prompts build.gradle.kts settings.gradle.kts gradle gradlew gradlew.bat \
+    .env.example .gitignore .gitattributes
 scp /tmp/mentor-src.tgz root@<IP-сервера>:/tmp/
 ssh root@<IP-сервера> 'set -e; rm -rf /opt/java-mentor-bot/source.new; mkdir /opt/java-mentor-bot/source.new
   tar -xzf /tmp/mentor-src.tgz -C /opt/java-mentor-bot/source.new; rm /tmp/mentor-src.tgz
