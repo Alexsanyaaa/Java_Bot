@@ -1,0 +1,10 @@
+[Unit]
+Description=Check host memory for the Java mentor bot every 5 seconds
+
+[Timer]
+OnBootSec=5s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

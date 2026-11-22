@@ -1,0 +1,7 @@
+[Unit]
+Description=Pause the Java mentor bot under host memory pressure
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mentor-memory-guard check
+TimeoutStartSec=10s

@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+mode=${1:-check}
+unit=java-mentor-bot.service
+state=${MENTOR_GUARD_STATE_DIR:-/run/mentor-memory-guard}
+meminfo=${MENTOR_GUARD_MEMINFO:-/proc/meminfo}
+uptime=${MENTOR_GUARD_UPTIME:-/proc/uptime}
+stop_at=$((192 * 1024))
+start_at=$((320 * 1024))
+cooldown=300
+
+umask 077
+mkdir -p "$state"
+exec 9>"$state/lock"
+flock -w 4 9
+available=$(awk '/^MemAvailable:/ { print $2; exit }' "$meminfo")
+now=$(awk '{ split($1, seconds, "."); print seconds[1]; exit }' "$uptime")
+case "$available" in ''|*[!0-9]*) exit 255;; esac
+case "$now" in ''|*[!0-9]*) exit 255;; esac
+
+until=0
+if [ -f "$state/resume-after" ]; then
+    read -r until < "$state/resume-after"
+    case "$until" in ''|*[!0-9]*) exit 255;; esac
+fi
+
+pause() {
+    printf '%s\n' "$((now + cooldown))" > "$state/resume-after"
+    printf '%s: MemAvailable=%s MiB, cooldown=%s seconds\n' "$1" "$((available / 1024))" "$cooldown"
+}
+
+case "$mode" in
+    allow-start)
+        if [ "$now" -lt "$until" ]; then exit 1; fi
+        if [ "$available" -lt "$start_at" ]; then
+            if [ "$until" -eq 0 ]; then pause "Bot start deferred"; fi
+            exit 1
+        fi
+        if [ "$until" -gt 0 ]; then
+            unlink "$state/resume-after"
+            printf 'Bot resuming: MemAvailable=%s MiB\n' "$((available / 1024))"
+        fi
+        ;;
+    check)
+        if systemctl is-active --quiet "$unit"; then
+            if [ "$available" -lt "$stop_at" ]; then
+                if [ "$until" -eq 0 ]; then pause "Stopping bot under memory pressure"; fi
+                systemctl --no-block stop "$unit"
+            fi
+        elif [ "$until" -gt 0 ] && [ "$now" -ge "$until" ] && [ "$available" -ge "$start_at" ]; then
+            systemctl --no-block start "$unit"
+        fi
+        ;;
+    *) exit 2 ;;
+esac
