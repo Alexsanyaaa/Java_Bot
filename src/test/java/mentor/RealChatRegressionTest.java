@@ -194,7 +194,7 @@ class RealChatRegressionTest {
     }
 
     @Test
-    void unfinishedDayBecomesDebtAndMissedDayTurnsOnStrictHours() {
+    void unfinishedDayIsAnOptionalTailAndMissedDayTurnsOnStrictHours() {
         var planner = new Planner();
         var state = new MentorState();
         Instant monday = Instant.parse("2026-11-16T07:00:00Z"); // 10:00 Moscow
@@ -209,12 +209,14 @@ class RealChatRegressionTest {
         Instant tuesdayNight = Instant.parse("2026-11-17T01:00:30Z"); // 04:00:30 Tuesday in Moscow, when the study day rolls over
         planner.evaluate(state, tuesdayNight);
         assertThat(first.carried).isTrue();
-        assertThat(Planner.active(state, tuesdayNight)).isSameAs(first);
+        // Monday's unfinished lesson stays open as an optional tail; Tuesday's lesson comes first (2026-11-23).
+        assertThat(Planner.active(state, tuesdayNight)).isSameAs(state.lessons.get(1));
+        assertThat(Planner.tail(state, tuesdayNight)).isSameAs(first);
         assertThat(Planner.streak(state, tuesdayNight)).isEqualTo(1);
 
         Instant tuesdayMorning = Instant.parse("2026-11-17T07:05:00Z");
         var notice = planner.nextNotice(state, tuesdayMorning);
-        assertThat(notice.text()).contains("Урок #1 (долг)", "Зачтено 1 из 4", "Шаг 2");
+        assertThat(notice.text()).contains("Урок #2", "Зачтено 0 из 4", "Шаг 1").doesNotContain("долг", "Урок #1");
 
         // Tuesday's lesson is never touched: it is carried once, then counted as a missed day.
         Instant thursday = Instant.parse("2026-11-19T01:00:30Z");

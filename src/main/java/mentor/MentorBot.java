@@ -995,8 +995,9 @@ final class MentorBot {
         Lesson lesson = Planner.active(state, now);
         if (lesson != null) {
             String heading = "Урок #" + lesson.id + " · " + Planner.label(state, lesson);
-            if (lesson.started) return new Reply(heading + "\n\n" + taskText(lesson), taskButtons(lesson));
-            return new Reply(heading + "\n\n" + MentorTone.start(lesson.id) + "\n\n" + taskText(lesson),
+            String tail = tailNote(state, lesson, now);
+            if (lesson.started) return new Reply(heading + "\n\n" + taskText(lesson) + tail, taskButtons(lesson));
+            return new Reply(heading + "\n\n" + MentorTone.start(lesson.id) + "\n\n" + taskText(lesson) + tail,
                     lessonButtons(lesson.id, lesson.start));
         }
         lesson = state.lessons.stream().filter(item -> !item.paused && item.start.isAfter(now))
@@ -1725,11 +1726,22 @@ final class MentorBot {
      * The lesson an answer belongs to. In free mode the day's lesson accepts answers without pressing
      * «Начать», and yesterday's unfinished lesson (debt) comes first.
      */
+    /** Where an answer goes: today's open step first; an optional tail only once today's lesson is done. */
     private static Lesson submittingLesson(MentorState state, Instant now) {
         return state.lessons.stream().filter(lesson -> !lesson.paused && lesson.currentTask() != null
                 && lesson.end().isAfter(now) && (lesson.flexibleEnd != null ? !now.isBefore(lesson.start)
                         : lesson.started && !now.isBefore(lesson.start.minus(Planner.BEFORE))))
-                .findFirst().orElse(null);
+                .min(Planner.todayFirst(state, now)).orElse(null);
+    }
+
+    /** /today mentions an optional tail once, after today's lesson; it is never required. */
+    private static String tailNote(MentorState state, Lesson shown, Instant now) {
+        Lesson tail = Planner.tail(state, now);
+        if (tail == null || tail == shown) return "";
+        return "\n\nНеобязательный хвост: урок #" + tail.id + ", шаг " + (tail.position + 1) + " «" + tail.currentTask().type()
+                + "». Сначала сегодняшний урок; хвост можно сдать после него до " + Planner.deadline(state, tail)
+                + (tail.accepted == 0 ? ". Хоть один шаг из него — и тот день не засчитается пропуском."
+                        : " или забить — на стрик и штрафы это не влияет.");
     }
 
     private static Project findProject(MentorState state, String id) {

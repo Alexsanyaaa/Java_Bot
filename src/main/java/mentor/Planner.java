@@ -295,7 +295,8 @@ final class Planner {
     }
 
     /**
-     * In free mode a lesson left unfinished at 04:00 stays open for one more day and comes first.
+     * In free mode a lesson left unfinished at 04:00 stays open one more day as an optional tail; today's lesson
+     * still comes first (see {@link #todayFirst}).
      * Only once, so debt never piles up beyond yesterday.
      */
     private void carryDebt(MentorState state, Instant now) {
@@ -414,10 +415,8 @@ final class Planner {
 
     private Notice flexibleNotice(MentorState state, Lesson lesson, Instant now) {
         LocalDate day = date(state, now);
-        // Unfinished yesterday's lesson comes first; reminders talk about it until it is closed.
-        Lesson debt = state.lessons.stream().filter(item -> item.carried && !item.paused && item.currentTask() != null
-                && item.end().isAfter(now) && date(state, item.start).isBefore(day)).findFirst().orElse(null);
-        Lesson target = debt != null ? debt : lesson;
+        // Reminders are about today's lesson only: an unfinished earlier lesson is an optional tail (2026-11-23).
+        Lesson target = lesson;
         Task task = target.currentTask();
         if (lesson.start.isAfter(now) || task == null || target.pending != null || isPaused(state, day)) {
             return null;
@@ -435,14 +434,14 @@ final class Planner {
             int hoursLeft = (int) Math.max(0, Duration.between(now, lesson.end()).toHours());
             boolean ignored = state.lastReminderAt != null && Planner.date(state, state.lastReminderAt).equals(day)
                     && (state.lastUserMessageAt == null || state.lastUserMessageAt.isBefore(state.lastReminderAt));
-            var progress = new MentorTone.Progress(target.accepted, target.tasks.size(), task.type(), debt != null,
+            var progress = new MentorTone.Progress(target.accepted, target.tasks.size(), task.type(), false,
                     streak(state, now), todaySteps(state, now), STREAK_STEPS, hoursLeft, ignored);
             String title = LearningCatalog.exercise(task).lines().findFirst().orElse(task.prompt());
             String focus = lesson.strict && localTime.isBefore(FOCUS_TO)
                     ? "\nСегодня строгие часы " + FOCUS_FROM + "–" + FOCUS_TO + ": Mentor Focus блокирует отвлекалки." : "";
             return new Notice(lesson.id, lesson.start, "daily",
                     MentorTone.dailyReminder(Math.min(i, 3), progress, lesson.id + i)
-                            + "\n\nУрок #" + target.id + (debt != null ? " (долг)" : "") + ". " + MentorContext.progress(target) + "."
+                            + "\n\nУрок #" + target.id + ". " + MentorContext.progress(target) + "."
                             + "\nШаг " + (target.position + 1) + " · " + task.type() + " — " + title
                             + "\n\n" + MentorTone.quickStart(task.type()) + focus, i + 1);
         }
@@ -529,7 +528,7 @@ final class Planner {
     /** A free-mode lesson shows its real deadline: «до 04:00 следующего дня» was wrong for a carried (debt) lesson. */
     static String label(MentorState state, Lesson lesson) {
         return lesson.flexibleEnd == null ? time(state, lesson.start)
-                : date(state, lesson.start) + (lesson.carried ? " · долг" : "") + " · сдать до " + deadline(state, lesson);
+                : date(state, lesson.start) + (lesson.carried ? " · хвост, необязательно" : "") + " · сдать до " + deadline(state, lesson);
     }
 
     /** «23.11 04:00»: when a free-mode lesson stops accepting answers. */
@@ -551,7 +550,24 @@ final class Planner {
 
     static Lesson active(MentorState state, Instant now) {
         return state.lessons.stream().filter(lesson -> !lesson.paused && !lesson.start.isAfter(now)
-                && lesson.end().isAfter(now)).findFirst().orElse(null);
+                && lesson.end().isAfter(now)).min(todayFirst(state, now)).orElse(null);
+    }
+
+    /**
+     * Today's lesson always comes first. An unfinished lesson of an earlier day stays open one more day as an optional
+     * tail: it never blocks today's lesson, reminders ignore it, and it takes answers only once today's is done.
+     * Until 2026-11-23 it was a mandatory «долг» that came first and held back the new lesson.
+     */
+    static java.util.Comparator<Lesson> todayFirst(MentorState state, Instant now) {
+        LocalDate today = date(state, now);
+        return java.util.Comparator.comparing((Lesson lesson) -> !date(state, lesson.start).equals(today));
+    }
+
+    /** The still open, unfinished lesson of an earlier day — optional, never required. */
+    static Lesson tail(MentorState state, Instant now) {
+        LocalDate today = date(state, now);
+        return state.lessons.stream().filter(lesson -> lesson.carried && !lesson.paused && lesson.currentTask() != null
+                && lesson.end().isAfter(now) && date(state, lesson.start).isBefore(today)).findFirst().orElse(null);
     }
 
     private static String strictText(Lesson lesson) {

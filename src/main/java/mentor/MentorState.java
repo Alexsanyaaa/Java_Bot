@@ -133,7 +133,7 @@ final class MentorState {
         public int selfChecked;
         public String lastAttempt = "";
         public boolean reviewDelayNotified;
-        /** A free-mode lesson left unfinished at 04:00 stays open one more day as debt. */
+        /** A free-mode lesson left unfinished at 04:00 stays open one more day as an optional tail. */
         public boolean carried;
         public Attempt pending;
         public List<Task> tasks = new ArrayList<>();

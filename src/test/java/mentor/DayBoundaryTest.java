@@ -65,7 +65,7 @@ class DayBoundaryTest {
         assertThat(Planner.label(state, lesson)).isEqualTo("2026-11-21 · сдать до 22.11 04:00");
         lesson.carried = true;
         lesson.flexibleEnd = lesson.flexibleEnd.plusSeconds(86_400);
-        assertThat(Planner.label(state, lesson)).isEqualTo("2026-11-21 · долг · сдать до 23.11 04:00");
+        assertThat(Planner.label(state, lesson)).isEqualTo("2026-11-21 · хвост, необязательно · сдать до 23.11 04:00");
 
         state.flexible = false;
         assertThat(Planner.date(state, TWO_AM)).as("timed mode keeps midnight").isEqualTo(DAY.plusDays(1));

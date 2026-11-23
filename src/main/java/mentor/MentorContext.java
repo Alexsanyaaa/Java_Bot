@@ -52,11 +52,12 @@ final class MentorContext {
         if (state.flexible) {
             // The models counted «до полуночи» on their own; give them the real deadline and the time left.
             Lesson due = state.lessons.stream().filter(lesson -> !lesson.paused && lesson.currentTask() != null
-                    && !lesson.start.isAfter(now) && lesson.end().isAfter(now)).findFirst().orElse(null);
+                    && !lesson.start.isAfter(now) && lesson.end().isAfter(now)).min(Planner.todayFirst(state, now))
+                    .orElse(null);
             data.append("Учебный день кончается в 04:00 ночи, а не в полночь.");
             if (due != null) {
                 long minutes = java.time.Duration.between(now, due.end()).toMinutes();
-                data.append(" Дедлайн урока #").append(due.id).append(due.carried ? " (долг)" : "").append(": ")
+                data.append(" Дедлайн урока #").append(due.id).append(due.carried ? " (необязательный хвост)" : "").append(": ")
                         .append(Planner.deadline(state, due)).append(", осталось ").append(minutes / 60).append(" ч ")
                         .append(minutes % 60).append(" мин.");
             }
@@ -105,7 +106,19 @@ final class MentorContext {
         }
         // Say plainly which step is open now: «скинь задание» must get this step, not any other.
         Lesson open = state.lessons.stream().filter(lesson -> !lesson.paused && lesson.currentTask() != null
-                && !lesson.start.isAfter(now) && lesson.end().isAfter(now)).findFirst().orElse(null);
+                && !lesson.start.isAfter(now) && lesson.end().isAfter(now)).min(Planner.todayFirst(state, now))
+                .orElse(null);
+        Lesson tail = Planner.tail(state, now);
+        if (tail != null && tail != open) {
+            data.append("Необязательный хвост прошлого урока: урок #").append(tail.id).append(", шаг ")
+                    .append(tail.position + 1).append(" («").append(tail.currentTask().type())
+                    .append("»). Не требуй его, не напоминай и не пугай им — сначала сегодняшний урок. Сдать его можно после"
+                            + " сегодняшнего, до ").append(Planner.deadline(state, tail))
+                    .append(". Скажет «забудем» или «забей» про хвост — соглашайся без нотаций.\n");
+        }
+        if (open != null && open == tail) {
+            data.append("Сегодняшний урок закрыт. Остался только необязательный хвост — давай его, только если сам просит задание.\n");
+        }
         if (open != null) {
             Task current = open.currentTask();
             data.append("ТЕКУЩИЙ ШАГ, его и давай на «скинь задание»: урок #").append(open.id).append(", шаг ")
