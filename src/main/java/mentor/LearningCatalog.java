@@ -417,18 +417,36 @@ final class LearningCatalog {
         return task.resource().equals(YOUTUBE_PLAYLIST_1) || task.resource().equals(YOUTUBE_PLAYLIST_2);
     }
 
+    /** Days a topic rests after it was asked, so the same question does not come back every day (2026-11-24). */
+    static final int ASK_REST_DAYS = 4;
+
+    /** Asked on {@code date} or within the {@link #ASK_REST_DAYS} days before it. */
+    static boolean askedRecently(MentorState state, String id, LocalDate date) {
+        LocalDate asked = state.askedOn.get(id);
+        return asked != null && !asked.isAfter(date) && asked.isAfter(date.minusDays(ASK_REST_DAYS));
+    }
+
+    /** Topics whose interview question appears in the task (a mini interview holds up to three). */
+    static List<String> topicsIn(Task task) {
+        return TOPICS.stream().filter(topic -> task.prompt().contains(topic.question())).map(Topic::id).toList();
+    }
+
     static Task interview(MentorState state, LocalDate date, String fallbackTopic) {
         Topic topic = TOPICS.stream()
                 .filter(candidate -> state.skills.containsKey(candidate.id()))
                 .filter(candidate -> !state.skills.get(candidate.id()).reviewOn().isAfter(date))
+                .filter(candidate -> !askedRecently(state, candidate.id(), date))
                 .min(java.util.Comparator.<Topic, Boolean>comparing(
                         candidate -> state.skills.get(candidate.id()).demonstrated())
                         .thenComparing(candidate -> state.skills.get(candidate.id()).reviewOn()))
                 .orElseGet(() -> TOPICS.stream().filter(candidate -> candidate.id().equals(fallbackTopic))
                         .findFirst().orElse(TOPICS.getFirst()));
         // Thirty minutes for one question was silly: a mini interview of three, two of them repeat studied topics.
+        // Review slots: topics that rested longest first, recently asked ones only if nothing else is left.
         var pool = new java.util.ArrayList<Topic>(TOPICS.stream().filter(candidate -> state.skills.containsKey(candidate.id()))
-                .sorted(java.util.Comparator.comparing((Topic candidate) -> state.skills.get(candidate.id()).reviewOn()))
+                .sorted(java.util.Comparator.comparing((Topic candidate) -> askedRecently(state, candidate.id(), date))
+                        .thenComparing(candidate -> state.askedOn.getOrDefault(candidate.id(), LocalDate.MIN))
+                        .thenComparing(candidate -> state.skills.get(candidate.id()).reviewOn()))
                 .toList());
         TOPICS.stream().filter(candidate -> candidate.id().equals(fallbackTopic)).findFirst().ifPresent(today -> pool.add(0, today));
         var review = pool.stream().filter(candidate -> !candidate.id().equals(topic.id())).distinct().limit(2).toList();

@@ -51,8 +51,8 @@ class OptionalTailTest {
         String todayText = bot.respond(state, "/today", "", NEXT_NOON).text();
         assertThat(todayText).startsWith("Урок #2").contains("Необязательный хвост: урок #1, шаг 4", "или забить");
 
-        // Reminders talk about today's lesson only (the 14:00 slot).
-        var notice = planner.nextNotice(state, Instant.parse("2026-11-23T11:05:00Z"));
+        // Reminders talk about today's lesson only (the 18:00 slot).
+        var notice = planner.nextNotice(state, Instant.parse("2026-11-23T15:05:00Z"));
         assertThat(notice.text()).contains("Урок #2", "Шаг 1").doesNotContain("Урок #1", "долг");
 
         // Oleg's notes: today's step is the current one; the tail is optional and may be dropped.

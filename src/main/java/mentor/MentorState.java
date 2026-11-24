@@ -51,6 +51,8 @@ final class MentorState {
     public boolean recallAnswered;
     /** Earlier answers to today's recall question; an objection to a verdict is reviewed together with them. */
     public String recallAttempt = "";
+    /** Topic id → the last study day it was asked (question of the day or lesson interview); keeps questions from repeating. */
+    public Map<String, LocalDate> askedOn = new LinkedHashMap<>();
     /** Reminders fire at random moments within ±30 minutes of their slot unless this is set (tests). */
     public boolean exactReminders;
     /** «Начинаю»: the student promised to send something; the bot checks back at this moment. */
@@ -71,6 +73,8 @@ final class MentorState {
     public LocalDate schoolNudgeDay;
     public LocalDate schoolStepDay;
     public Instant lastReminderAt;
+    /** Last successfully sent chat reaction; survives restarts so reactions stay sparse. */
+    public Instant lastReactionAt;
 
     record CommandReply(long updateId, long chat, String text, List<TelegramApi.Button> buttons) {}
 

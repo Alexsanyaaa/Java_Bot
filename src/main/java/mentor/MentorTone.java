@@ -112,6 +112,9 @@ final class MentorTone {
     }
 
     /** A reminder that reacts to real progress. Later slots get pushier. */
+    /** The slot number {@link #dailyReminder} gets for the last reminder of the study day. */
+    static final int LAST_REMINDER = 4;
+
     static String dailyReminder(int slot, Progress p, long seed) {
         if (p.ignored()) {
             return choose(List.of(
@@ -122,24 +125,24 @@ final class MentorTone {
                     p.streak(), p.todaySteps(), p.streakGoal(), p.hoursLeft(), false), seed);
         }
         String opener;
-        if (p.debt()) {
-            opener = choose(List.of(
-                    "Вчерашний урок до сих пор висит: " + p.accepted() + " из " + p.total() + ". Долг сам себя не закроет.",
-                    "Ты там живой? Вчерашний урок застрял на шаге " + (p.accepted() + 1) + " из " + p.total() + ".",
-                    "Второй день на шаге " + (p.accepted() + 1) + " из " + p.total() + ". Это уже не лень, это стратегия."
-            ), seed + slot);
-        } else if (p.accepted() == 0) {
+        // Reminders go out from 18:00 to 02:30 (2026-11-23), so no «доброе утро»; the last one is the last call.
+        if (p.accepted() == 0) {
             opener = switch (slot) {
                 case 0 -> choose(List.of(
-                        "Доброе утро. Сегодняшний урок открыт, а ты пока на нуле. Самое время это исправить.",
-                        "Утро. Урок ждёт, 0 из " + p.total() + ". Первый шаг — теория, это даже не больно."), seed);
-                case 1 -> "Полдня прошло, а урок всё ещё 0 из " + p.total() + ". Десять минут — и первый шаг закрыт.";
-                case 2 -> "Вечер, 0 из " + p.total() + ". Собес сам себя не пройдёт, а лень сама себя не победит.";
+                        "Вечер. Урок открыт, а ты пока на нуле. Самое время это исправить.",
+                        "Урок ждёт, 0 из " + p.total() + ". Первый шаг — теория, это даже не больно."), seed);
+                case 1 -> "Вечер в разгаре, а урок всё ещё 0 из " + p.total() + ". Десять минут — и первый шаг закрыт.";
+                case 2 -> "0 из " + p.total() + ". Собес сам себя не пройдёт, а лень сама себя не победит.";
+                case LAST_REMINDER -> "Последний звонок: 0 из " + p.total() + ", до 04:00 " + hours(p.hoursLeft())
+                        + ". Закрой хотя бы теорию — это минут 20 по делу.";
                 default -> choose(List.of(
                         "Ну что, опять «завтра»? До 04:00 " + hours(p.hoursLeft()) + ", а у тебя 0 из " + p.total() + ".",
-                        "0 из " + p.total() + ". Я не злюсь, я просто записываю. До 04:00 " + hours(p.hoursLeft()) + ".",
-                        "Последний звонок: 0 из " + p.total() + ". Закрой хотя бы теорию — это минут 20 по делу."), seed + slot);
+                        "0 из " + p.total() + ". Я не злюсь, я просто записываю. До 04:00 " + hours(p.hoursLeft()) + "."),
+                        seed + slot);
             };
+        } else if (slot == LAST_REMINDER) {
+            opener = "Последний звонок: " + p.accepted() + " из " + p.total() + ", до 04:00 " + hours(p.hoursLeft())
+                    + ". Добей хоть ещё один шаг.";
         } else {
             opener = slot <= 2
                     ? choose(List.of(

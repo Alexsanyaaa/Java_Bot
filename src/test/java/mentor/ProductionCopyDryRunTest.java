@@ -38,11 +38,11 @@ class ProductionCopyDryRunTest {
                 new MentorModel(json, "http://127.0.0.1:1", "", ""), Clock.fixed(now, ZoneOffset.UTC), "", "", "");
         String today = store.write(state -> bot.respond(state, "/today", "", now).text());
         var reminders = new StringBuilder();
-        for (int hour : new int[] {10, 14, 18, 20, 21, 22, 23}) {
-            Instant at = Planner.at(store.read(state -> state), Planner.date(store.read(state -> state), now),
-                    java.time.LocalTime.of(hour, hour >= 21 ? 35 : 5));
+        for (var slot : Planner.DAILY_REMINDERS) {
+            Instant at = Planner.reminderAt(store.read(state -> state), Planner.date(store.read(state -> state), now),
+                    slot.plusMinutes(5));
             var notice = store.read(state -> planner.nextNotice(state, at));
-            reminders.append(hour).append(":xx → ").append(notice == null ? "—" : notice.text()).append("\n\n");
+            reminders.append(slot).append(" → ").append(notice == null ? "—" : notice.text()).append("\n\n");
         }
         Files.writeString(Path.of(System.getenv("MENTOR_DRYRUN_DB") + "-report.txt"),
                 "BEFORE\n" + before + "\nAFTER\n" + after + "\n/today\n" + today + "\n\nREMINDERS\n" + reminders);

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -368,6 +369,12 @@ final class MentorBot {
         long sentAt = message.path("date").asLong();
         Instant received = sentAt > 0 && sentAt < now.getEpochSecond() ? Instant.ofEpochSecond(sentAt) : now;
         String input = clicked ? "/" + callback.path("data").asText() : message.path("text").asText();
+        boolean imageMessage = !clicked && (message.path("photo").isArray() && !message.path("photo").isEmpty()
+                || message.path("document").path("mime_type").asText().startsWith("image/"));
+        if (imageMessage) {
+            input = imageInput(chat, message);
+            if (input.isEmpty()) return;
+        }
         if (!clicked && !message.path("voice").isMissingNode()) {
             input = transcribeVoice(chat, message.path("voice"));
             if (input.isEmpty()) return;
@@ -423,8 +430,9 @@ final class MentorBot {
         if (input.isBlank()) {
             return;
         }
-        if (input.length() > 3900) {
-            telegram.send(chat, "Пришли фрагмент до 3900 символов.");
+        if (input.length() > (imageMessage ? MAX_SUBMISSION_LENGTH : 3900)) {
+            telegram.send(chat, imageMessage ? "На скриншоте слишком много текста. Пришли нужную часть крупнее."
+                    : "Пришли фрагмент до 3900 символов.");
             return;
         }
         String[] parts = input.strip().split("(?U)\\s+", 2);
@@ -455,7 +463,8 @@ final class MentorBot {
                 case "/pdf" -> sendPdf(chat, args);
                 case "/hint" -> hint(chat, args, now);
                 case "/vacancy" -> vacancy(chat, args);
-                case "/progress" -> talk(chat, args, now, received, true, 0, update.path("update_id").asLong(), false);
+                case "/progress" -> talk(chat, args, now, received, true, 0, update.path("update_id").asLong(), false,
+                        clicked ? 0 : message.path("message_id").asLong());
                 default -> {
                     if (!command.startsWith("/")) {
                         boolean projectReply = message.path("reply_to_message").path("from").path("is_bot").asBoolean()
@@ -468,11 +477,11 @@ final class MentorBot {
                         long repliedTo = message.path("reply_to_message").path("message_id").asLong();
                         boolean recallReply = repliedTo != 0 && store.read(state -> state.recallMessageId == repliedTo);
                         if (!projectReply && !recallReply && store.read(state -> schoolModeOn(state, now))) {
-                            schoolTalk(chat, input.strip(), now);
+                            schoolTalk(chat, input.strip(), now, message.path("message_id").asLong());
                             return;
                         }
                         talk(chat, input.strip(), now, received, projectReply, projectReply ? repliedTo : 0,
-                                update.path("update_id").asLong(), recallReply);
+                                update.path("update_id").asLong(), recallReply, message.path("message_id").asLong());
                         return;
                     }
                     Reply reply = store.write(state -> {
@@ -704,6 +713,54 @@ final class MentorBot {
         }
     }
 
+    private String imageInput(long chat, JsonNode message) throws IOException, InterruptedException {
+        JsonNode chosen = message.path("document");
+        if (message.path("photo").isArray()) {
+            chosen = null;
+            long largest = -1;
+            for (var photo : message.path("photo")) {
+                if (photo.path("file_size").asLong() > TelegramApi.MAX_IMAGE_BYTES) continue;
+                long area = photo.path("width").asLong() * photo.path("height").asLong();
+                if (area >= largest) {
+                    largest = area;
+                    chosen = photo;
+                }
+            }
+        }
+        if (chosen == null || chosen.path("file_size").asLong() > TelegramApi.MAX_IMAGE_BYTES) {
+            this.telegram.send(chat, "Картинка больше 2 МиБ. Отправь её как фото или обрежь нужный участок.");
+            return "";
+        }
+        String fileId = chosen.path("file_id").asText();
+        if (fileId.isBlank()) {
+            this.telegram.send(chat, "Telegram не передал файл картинки. Пришли изображение ещё раз.");
+            return "";
+        }
+        try {
+            byte[] bytes = this.telegram.image(fileId);
+            String mime = imageMime(bytes);
+            if (mime == null) {
+                this.telegram.send(chat, "Поддерживаю картинки JPEG, PNG и WebP. Пришли скриншот в одном из этих форматов.");
+                return "";
+            }
+            String extracted = this.withTyping(chat, () -> this.model.readImage(bytes, mime));
+            return "Сообщение ученика к изображению: " + message.path("caption").asText()
+                    + "\n\nСодержимое присланного изображения (распознано моделью, возможны ошибки чтения):\n" + extracted;
+        } catch (IOException | RuntimeException failure) {
+            LOG.warn("Изображение не обработано ({})", failure.getClass().getSimpleName());
+            this.telegram.send(chat, "Картинка дошла, но прочитать её сейчас не удалось. Пришли её ещё раз или скопируй нужный текст.");
+            return "";
+        }
+    }
+
+    private static String imageMime(byte[] bytes) {
+        if (bytes.length >= 3 && bytes[0] == (byte) 0xff && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff) return "image/jpeg";
+        if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') return "image/png";
+        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') return "image/webp";
+        return null;
+    }
+
     private void interviewAnswer(long chat, String answer, Instant now) throws IOException, InterruptedException {
         String topic = store.read(state -> state.interviewTopic);
         if (topic.isBlank()) return;
@@ -782,7 +839,7 @@ final class MentorBot {
      * Chat in School 21 mode. A report about the current T04B step goes to the step review; everything else
      * is a conversation with the School 21 mentor.
      */
-    private void schoolTalk(long chat, String message, Instant now) throws IOException, InterruptedException {
+    private void schoolTalk(long chat, String message, Instant now, long sourceMessageId) throws IOException, InterruptedException {
         MentorState snapshot = store.read(state -> state);
         Project project = SchoolMentor.project(snapshot);
         Task step = project == null ? null : SchoolMentor.currentStep(project);
@@ -795,6 +852,7 @@ final class MentorBot {
             }
         }
         String reply;
+        String reaction = "";
         if (intent == MentorModel.Intent.ANSWER) {
             int number = project.completedSteps() + 1;
             telegram.send(chat, "Принял отчёт по шагу " + number + " из " + LearningCatalog.T04B_STEPS + ", проверяю…");
@@ -829,6 +887,7 @@ final class MentorBot {
                 return;
             }
             reply = withoutChatCredit(result.answer());
+            if (!reply.isBlank()) reaction = result.reaction();
             if (reply.isBlank()) reply = SchoolMentor.status(snapshot, now);
         }
         String answer = reply;
@@ -837,6 +896,7 @@ final class MentorBot {
             return null;
         });
         telegram.sendFormatted(chat, answer, new Button("📚 Собес", "daily"));
+        maybeReact(chat, sourceMessageId, reaction);
     }
 
     private static boolean recallOpen(MentorState state, Instant now) {
@@ -845,30 +905,29 @@ final class MentorBot {
     }
 
     /**
-     * Once a day, at a random moment between 12:00 and 21:00, asks one question about a topic that was
-     * already studied. Weak topics and the oldest review dates go first.
+     * Once a day, at a random evening moment (18:00–23:00), asks one question about a topic that was already
+     * studied; see {@link #recallTopic} for which one.
      */
     private void maybeSendRecall(long chat, Instant now) throws IOException, InterruptedException {
         String question = store.write(state -> {
             LocalDate today = Planner.date(state, now);
             if (today.equals(state.recallDay) || Planner.isPaused(state, today)) return null;
-            int minute = Math.floorMod(today.hashCode() * 31 + 7, 9 * 60);
-            LocalTime at = LocalTime.of(12, 0).plusMinutes(minute);
-            LocalTime local = now.atZone(ZoneId.of(state.zone)).toLocalTime();
-            if (local.isBefore(at) || !local.isBefore(LocalTime.of(22, 0))) return null;
+            // Evening only (the owner studies in the evening, 2026-11-23): a random moment 18:00–23:00 of the study
+            // day; after an outage it may still go out until 02:00.
+            int minute = Math.floorMod(today.hashCode() * 31 + 7, 5 * 60);
+            Instant at = Planner.at(state, today, LocalTime.of(18, 0)).plus(java.time.Duration.ofMinutes(minute));
+            Instant last = Planner.at(state, today.plusDays(1), LocalTime.of(2, 0));
+            if (now.isBefore(at) || !now.isBefore(last)) return null;
+            String topic = recallTopic(state, today);
             state.recallDay = today;
             state.recallAnswered = false;
             state.recallAttempt = "";
             state.recallMessageId = 0;
-            var studied = new java.util.LinkedHashSet<String>(state.skills.keySet());
-            state.lessons.stream().filter(lesson -> lesson.position > 0 && Planner.date(state, lesson.start).isBefore(today))
-                    .map(lesson -> lesson.tasks.getFirst().topic()).forEach(studied::add);
-            studied.removeIf(topic -> LearningCatalog.topicId(topic).isEmpty());
-            String topic = studied.stream().min(Comparator
-                    .comparing((String id) -> state.skills.containsKey(id) && state.skills.get(id).demonstrated())
-                    .thenComparing(id -> state.skills.containsKey(id) ? state.skills.get(id).reviewOn() : LocalDate.MIN))
-                    .orElse("");
             state.recallTopic = topic;
+            if (!topic.isBlank()) {
+                state.askedOn.put(topic, today);
+                refreshInterviews(state, now);
+            }
             return topic.isBlank() ? null : MentorTone.recall(today.toEpochDay()) + "\n\n"
                     + LearningCatalog.interviewQuestion(topic).prompt()
                     + "\n\nОтветь прямо сюда, можно голосовым.";
@@ -880,6 +939,37 @@ final class MentorBot {
             DayMemory.remember(state, now, "", question, null);
             return null;
         });
+    }
+
+    /**
+     * The topic of today's question: a studied topic that was not asked in the last few days and is not in today's
+     * lesson interview. Due and weak topics go first, then the one that rested longest. 2026-11-24: a weak topic that
+     * was never answered stayed «weakest» forever, so the hashCode question came every day.
+     */
+    static String recallTopic(MentorState state, LocalDate today) {
+        if (!state.recallTopic.isBlank() && state.recallDay != null) // an unanswered question still counts as asked
+            state.askedOn.merge(state.recallTopic, state.recallDay, (a, b) -> a.isAfter(b) ? a : b);
+        var studied = new java.util.LinkedHashSet<String>(state.skills.keySet());
+        state.lessons.stream().filter(lesson -> lesson.position > 0 && Planner.date(state, lesson.start).isBefore(today))
+                .map(lesson -> lesson.tasks.getFirst().topic()).forEach(studied::add);
+        studied.removeIf(topic -> LearningCatalog.topicId(topic).isEmpty());
+        var inLessons = new java.util.HashSet<String>();
+        state.lessons.stream().filter(lesson -> !Planner.date(state, lesson.start).isBefore(today.minusDays(1))
+                        && !Planner.date(state, lesson.start).isAfter(today))
+                .flatMap(lesson -> lesson.tasks.stream()).filter(task -> task.type().equals("Собеседование"))
+                .forEach(task -> inLessons.addAll(LearningCatalog.topicsIn(task)));
+        var fresh = studied.stream().filter(id -> !LearningCatalog.askedRecently(state, id, today) && !inLessons.contains(id))
+                .toList();
+        if (fresh.isEmpty()) fresh = studied.stream().filter(id -> !today.minusDays(1).equals(state.askedOn.get(id))
+                && !inLessons.contains(id)).toList();
+        if (fresh.isEmpty()) fresh = studied.stream().filter(id -> !today.minusDays(1).equals(state.askedOn.get(id))).toList();
+        if (fresh.isEmpty()) fresh = List.copyOf(studied);
+        return fresh.stream().min(Comparator
+                .comparing((String id) -> state.skills.containsKey(id) && state.skills.get(id).reviewOn().isAfter(today))
+                .thenComparing(id -> state.skills.containsKey(id) && state.skills.get(id).demonstrated())
+                .thenComparing(id -> state.askedOn.getOrDefault(id, LocalDate.MIN))
+                .thenComparing(id -> state.skills.containsKey(id) ? state.skills.get(id).reviewOn() : LocalDate.MIN))
+                .orElse("");
     }
 
     private void recallAnswer(long chat, String answer, Instant now) throws IOException, InterruptedException {
@@ -1075,7 +1165,7 @@ final class MentorBot {
     }
 
     private void talk(long chat, String message, Instant now, Instant received, boolean progressReply,
-                      long replyToMessage, long updateId, boolean replyToRecall)
+                      long replyToMessage, long updateId, boolean replyToRecall, long sourceMessageId)
             throws IOException, InterruptedException {
         MentorState snapshot = store.write(state -> {
             planner.evaluate(state, now);
@@ -1235,6 +1325,24 @@ final class MentorBot {
         });
         if (reminder != null) {
             telegram.send(chat, reminder.text(), reminder.buttons());
+        }
+        if (!safeAnswer.isBlank()) maybeReact(chat, sourceMessageId, result.reaction());
+    }
+
+    /** Cosmetic, best-effort: never let an unsupported/failed reaction break the conversation. */
+    private void maybeReact(long chat, long messageId, String emoji) throws InterruptedException {
+        if (messageId <= 0 || !MentorModel.REACTION_EMOJI.contains(emoji)) return;
+        Instant now = clock.instant();
+        if (store.read(state -> state.lastReactionAt != null
+                && now.isBefore(state.lastReactionAt.plus(Duration.ofMinutes(2))))) return;
+        try {
+            telegram.react(chat, messageId, emoji);
+            store.write(state -> {
+                state.lastReactionAt = clock.instant();
+                return null;
+            });
+        } catch (IOException failure) {
+            LOG.debug("Telegram не принял реакцию: {}", failure.getClass().getSimpleName());
         }
     }
 
@@ -1568,11 +1676,25 @@ final class MentorBot {
     private void recordSkill(MentorState state, Lesson lesson, boolean accepted, Instant now) {
         Task task = lesson.currentTask();
         if (task.type().equals("Собеседование") || task.type().equals("Теория") && !LearningCatalog.isPlaylist(task)) {
-            state.skills.put(task.topic(), new Skill(accepted, Planner.date(state, now).plusDays(accepted ? 4 : 1)));
-            state.lessons.stream().filter(item -> !item.started && !item.paused && item.start.isAfter(now))
-                    .forEach(item -> item.tasks.set(2,
-                            LearningCatalog.interview(state, Planner.date(state, item.start), item.tasks.getFirst().topic())));
+            LocalDate today = Planner.date(state, now);
+            state.skills.put(task.topic(), new Skill(accepted, today.plusDays(accepted ? 4 : 1)));
+            if (task.type().equals("Собеседование")) {
+                // The review questions of a mini interview count too: they were asked, and a pass moves them forward.
+                for (String id : LearningCatalog.topicsIn(task)) {
+                    state.askedOn.put(id, today);
+                    if (accepted && !id.equals(task.topic())) state.skills.put(id, new Skill(true, today.plusDays(4)));
+                }
+            }
+            refreshInterviews(state, now);
         }
+    }
+
+    /** Rebuilds the interview step of lessons that have not started yet, so they skip recently asked topics. */
+    private static void refreshInterviews(MentorState state, Instant now) {
+        state.lessons.stream().filter(item -> !item.started && !item.paused && item.start.isAfter(now) && item.tasks.size() > 2
+                        && item.tasks.get(2).type().equals("Собеседование"))
+                .forEach(item -> item.tasks.set(2,
+                        LearningCatalog.interview(state, Planner.date(state, item.start), item.tasks.getFirst().topic())));
     }
 
     private String solved(MentorState state, String args) {
@@ -1640,7 +1762,7 @@ final class MentorBot {
         LocalDate week = store.read(state -> weekStart(state, now));
         String message = store.read(state -> {
             LocalTime local = now.atZone(ZoneId.of(state.zone)).toLocalTime();
-            if (local.isBefore(LocalTime.of(10, 0)) || !local.isBefore(LocalTime.of(21, 0))
+            if (local.isBefore(LocalTime.of(17, 0)) || !local.isBefore(LocalTime.of(23, 0))
                     || Planner.isPaused(state, Planner.date(state, now))
                     || !state.flexible && state.windows.isEmpty() || week.equals(state.weeklySent)) {
                 return "";

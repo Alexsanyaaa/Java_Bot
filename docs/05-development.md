@@ -6,6 +6,8 @@
   `C:\Users\467\Desktop\bot\Java_Bot`, правки делаются в нём. Старая папка `C:\Users\467\Desktop\botik\New project` —
   архив, там не править.
   На сервере в `/opt/java-mentor-bot/source/` лежит копия только для чтения.
+- На Linux рабочая копия — `/home/alex/javka/botik/Java_Bot`; `/home/alex/Docs/ChatGPT/New project` — архив.
+  Если у `gradlew` нет права исполнения после переноса с Windows, запускай `bash gradlew test bootJar`.
 - JDK 21: `C:\Users\467\AppData\Local\Programs\Java\jdk-21.0.12.1+1`. Сборка — Gradle Wrapper (`./gradlew`).
 - Коммиты и push владелец делает сам, тремя командами: `git add -A`, `git commit -m "…"`, `git push origin main`.
   В сообщениях коммитов — обычный текст, без строк `Co-Authored-By` и упоминаний ИИ-помощников.
@@ -43,6 +45,8 @@ deploy/systemd/           служба, сторож памяти, таймер 
 | `DayBoundaryTest` | День 04:00–04:00, перенос старых уроков, стрик с пропуском, дедлайн в заметках и карточке, напоминания без «полуночи» |
 | `GeminiAuthTest` | Ключ Gemini уходит в обоих заголовках |
 | `OptionalTailTest` | Недоделанный урок — необязательный хвост: сегодняшний урок первый в `/today`, ответах, заметках и напоминаниях |
+| `TelegramReactionsTest` | Реакция из ответа модели на исходное сообщение, отсутствие лишнего запроса, необязательность, сохранение паузы при перезапуске, отказ Telegram, школьный режим. Живой выбор модели — при `MENTOR_LIVE_REACTIONS=1` |
+| `ImageInputTest` | Фото и файл с подписью, память диалога, реакция на фото, размер и владелец, продолжение после ошибки распознавания |
 | `LiveConversationTest` | **Живой** прогон диалога на настоящих моделях (пропускается без переменных) |
 | `LiveReviewTest` | **Живая** проверка ответов (`MENTOR_LIVE_REVIEW`) |
 | `ProductionCopyDryRunTest` | Прогон логики на копии прод-базы (`MENTOR_DRYRUN_DB=путь`) |

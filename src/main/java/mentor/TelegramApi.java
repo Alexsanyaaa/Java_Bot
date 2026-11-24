@@ -20,6 +20,7 @@ final class TelegramApi {
     record Button(String text, String callback_data) {}
 
     static final int MAX_VOICE_BYTES = 1024 * 1024;
+    static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
     private final String fileBase;
     private static final int MESSAGE_LIMIT = 4096;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
@@ -58,6 +59,14 @@ final class TelegramApi {
         request("answerCallbackQuery", Map.of("callback_query_id", callback));
     }
 
+    void react(long chat, long messageId, String emoji) throws IOException, InterruptedException {
+        if (messageId <= 0 || !MentorModel.REACTION_EMOJI.contains(emoji)) return;
+        var body = Map.of("chat_id", chat, "message_id", messageId,
+                "reaction", List.of(Map.of("type", "emoji", "emoji", emoji)), "is_big", false);
+        request("setMessageReaction", "application/json",
+                HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)), Duration.ofSeconds(4));
+    }
+
     void menu(long chat, String text) throws IOException, InterruptedException {
         request("sendMessage", Map.of("chat_id", chat, "text", text, "reply_markup", Map.of(
                 "keyboard", List.of(List.of("📚 Урок", "🗓 План"), List.of("🎙 Собеседование", "🏫 Школа 21"),
@@ -71,20 +80,28 @@ final class TelegramApi {
     }
 
     byte[] voice(String fileId) throws IOException, InterruptedException {
+        return download(fileId, MAX_VOICE_BYTES);
+    }
+
+    byte[] image(String fileId) throws IOException, InterruptedException {
+        return download(fileId, MAX_IMAGE_BYTES);
+    }
+
+    private byte[] download(String fileId, int limit) throws IOException, InterruptedException {
         var file = request("getFile", Map.of("file_id", fileId));
         String path = file.path("file_path").asText();
         if (!path.matches("[A-Za-z0-9_./-]+") || path.contains("..") || path.startsWith("/")) {
-            throw new IOException("Некорректный путь к голосовому сообщению");
+            throw new IOException("Некорректный путь к вложению");
         }
         var download = HttpRequest.newBuilder(URI.create(fileBase + path)).timeout(Duration.ofSeconds(20)).GET().build();
         var response = client.send(download, HttpResponse.BodyHandlers.ofInputStream());
         try (var stream = response.body()) {
             if (response.statusCode() != 200) {
-                throw new IOException("Telegram не отдал голосовое сообщение");
+                throw new IOException("Telegram не отдал вложение");
             }
-            byte[] data = stream.readNBytes(MAX_VOICE_BYTES + 1);
-            if (data.length == 0 || data.length > MAX_VOICE_BYTES) {
-                throw new IOException("Размер голосового сообщения превышает лимит");
+            byte[] data = stream.readNBytes(limit + 1);
+            if (data.length == 0 || data.length > limit) {
+                throw new IOException("Размер вложения превышает лимит");
             }
             return data;
         }
@@ -147,8 +164,13 @@ final class TelegramApi {
 
     private JsonNode request(String method, String contentType, HttpRequest.BodyPublisher body)
             throws IOException, InterruptedException {
+        return request(method, contentType, body, Duration.ofSeconds(32));
+    }
+
+    private JsonNode request(String method, String contentType, HttpRequest.BodyPublisher body, Duration timeout)
+            throws IOException, InterruptedException {
         try {
-            var request = HttpRequest.newBuilder(URI.create(base + method)).timeout(Duration.ofSeconds(32))
+            var request = HttpRequest.newBuilder(URI.create(base + method)).timeout(timeout)
                     .header("Content-Type", contentType).POST(body).build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             JsonNode result = json.readTree(response.body());

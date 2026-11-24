@@ -25,10 +25,13 @@ final class Planner {
     static final Duration FOLLOWUP = Duration.ofMinutes(30);
     static final Duration ACTIVITY_DELAY = Duration.ofMinutes(10);
     static final Duration SLOT = Duration.ofHours(2);
-    /** Free-mode reminders get denser toward the evening; the last one comes half an hour before midnight. */
+    /**
+     * Free-mode reminders: evening and night only, denser toward the 04:00 deadline. Slots before 04:00 belong to the
+     * night after the study day. The owner studies only in the evening (2026-11-23); before that it was 10:00–23:30.
+     */
     static final List<LocalTime> DAILY_REMINDERS = List.of(
-            LocalTime.of(10, 0), LocalTime.of(14, 0), LocalTime.of(18, 0), LocalTime.of(20, 0),
-            LocalTime.of(21, 30), LocalTime.of(22, 30), LocalTime.of(23, 30));
+            LocalTime.of(18, 0), LocalTime.of(20, 0), LocalTime.of(21, 30), LocalTime.of(22, 30),
+            LocalTime.of(23, 30), LocalTime.of(0, 30), LocalTime.of(1, 30), LocalTime.of(2, 30));
     /** Strict hours in free mode: Mentor Focus blocks distracting apps in this window. */
     static final LocalTime FOCUS_FROM = LocalTime.of(19, 0);
     static final LocalTime FOCUS_TO = LocalTime.of(21, 0);
@@ -421,26 +424,28 @@ final class Planner {
         if (lesson.start.isAfter(now) || task == null || target.pending != null || isPaused(state, day)) {
             return null;
         }
-        LocalTime localTime = now.atZone(ZoneId.of(state.zone)).toLocalTime();
         int lastSent = Math.max(lesson.flexibleReminderSlot, lesson.startSent ? 1 : 0);
         List<LocalTime> slots = reminderTimes(state, day);
         for (int i = lastSent; i < slots.size(); i++) {
-            LocalTime slot = slots.get(i);
-            if (localTime.isBefore(slot)) return null;
-            // Each reminder is valid for at most an hour, so an outage does not produce a burst of stale ones.
-            LocalTime until = i + 1 < slots.size() ? slots.get(i + 1) : LocalTime.MAX;
-            if (slot.isBefore(LocalTime.of(23, 0)) && slot.plusHours(1).isBefore(until)) until = slot.plusHours(1);
-            if (!localTime.isBefore(until)) continue;
+            Instant slot = reminderAt(state, day, slots.get(i));
+            if (now.isBefore(slot)) return null;
+            // Each reminder is valid for at most an hour (and not past the next one or the deadline), so an outage
+            // does not produce a burst of stale ones.
+            Instant until = slot.plus(Duration.ofHours(1));
+            if (i + 1 < slots.size()) until = earlier(until, reminderAt(state, day, slots.get(i + 1)));
+            until = earlier(until, lesson.end());
+            if (!now.isBefore(until)) continue;
             int hoursLeft = (int) Math.max(0, Duration.between(now, lesson.end()).toHours());
             boolean ignored = state.lastReminderAt != null && Planner.date(state, state.lastReminderAt).equals(day)
                     && (state.lastUserMessageAt == null || state.lastUserMessageAt.isBefore(state.lastReminderAt));
             var progress = new MentorTone.Progress(target.accepted, target.tasks.size(), task.type(), false,
                     streak(state, now), todaySteps(state, now), STREAK_STEPS, hoursLeft, ignored);
             String title = LearningCatalog.exercise(task).lines().findFirst().orElse(task.prompt());
-            String focus = lesson.strict && localTime.isBefore(FOCUS_TO)
+            String focus = lesson.strict && now.isBefore(focusEnd(state, lesson))
                     ? "\nСегодня строгие часы " + FOCUS_FROM + "–" + FOCUS_TO + ": Mentor Focus блокирует отвлекалки." : "";
             return new Notice(lesson.id, lesson.start, "daily",
-                    MentorTone.dailyReminder(Math.min(i, 3), progress, lesson.id + i)
+                    MentorTone.dailyReminder(i == slots.size() - 1 ? MentorTone.LAST_REMINDER : Math.min(i, 3),
+                            progress, lesson.id + i)
                             + "\n\nУрок #" + target.id + ". " + MentorContext.progress(target) + "."
                             + "\nШаг " + (target.position + 1) + " · " + task.type() + " — " + title
                             + "\n\n" + MentorTone.quickStart(task.type()) + focus, i + 1);
@@ -449,34 +454,49 @@ final class Planner {
     }
 
     /**
-     * Today's reminder moments: each slot moves by a random but stable offset of up to ±30 minutes
-     * (the last one stays before 23:50), so reminders do not become background noise.
+     * The study day's reminder moments: each slot moves by a random but stable offset of up to ±30 minutes (the last
+     * one only up to +15), so reminders do not become background noise. Order and the 20-minute gap are kept on the
+     * study-day clock that starts at 04:00, so slots after midnight sort after the evening ones.
      */
     static List<LocalTime> reminderTimes(MentorState state, LocalDate day) {
         if (state.exactReminders) return DAILY_REMINDERS;
-        var times = new ArrayList<LocalTime>();
+        var minutes = new ArrayList<Integer>();
         for (int i = 0; i < DAILY_REMINDERS.size(); i++) {
             long seed = day.toEpochDay() * 1_000_003L + i * 7_919L;
             seed = (seed ^ (seed >>> 13)) * 0x9E3779B97F4A7C15L;
             int max = i == DAILY_REMINDERS.size() - 1 ? 15 : 30;
             int offset = (int) Math.floorMod(seed >>> 17, (long) (30 + max + 1)) - 30;
-            times.add(DAILY_REMINDERS.get(i).plusMinutes(offset));
+            minutes.add(sinceDayStart(DAILY_REMINDERS.get(i)) + offset);
         }
-        for (int i = 1; i < times.size(); i++) {
-            if (!times.get(i).isAfter(times.get(i - 1).plusMinutes(20))) times.set(i, times.get(i - 1).plusMinutes(20));
+        for (int i = 1; i < minutes.size(); i++) {
+            minutes.set(i, Math.max(minutes.get(i), minutes.get(i - 1) + 20));
         }
-        return times;
+        return minutes.stream().map(minute -> DAY_START.plusMinutes(Math.min(minute, 24 * 60 - 1))).toList();
+    }
+
+    /** A reminder slot as a moment: slots before 04:00 fall on the night after the study day. */
+    static Instant reminderAt(MentorState state, LocalDate day, LocalTime slot) {
+        return at(state, slot.isBefore(DAY_START) ? day.plusDays(1) : day, slot);
+    }
+
+    private static int sinceDayStart(LocalTime time) {
+        return Math.floorMod(time.toSecondOfDay() / 60 - DAY_START.toSecondOfDay() / 60, 24 * 60);
+    }
+
+    private static Instant earlier(Instant first, Instant second) {
+        return first.isBefore(second) ? first : second;
     }
 
     private Notice missedNotice(MentorState state, Instant now) {
         LocalDate today = date(state, now);
         LocalTime localTime = now.atZone(ZoneId.of(state.zone)).toLocalTime();
-        if (isPaused(state, today) || localTime.isBefore(LocalTime.of(9, 0)) || !localTime.isBefore(LocalTime.of(22, 0))) {
+        // Evening only: the owner does not study in the morning or during the day (2026-11-23).
+        if (isPaused(state, today) || localTime.isBefore(LocalTime.of(17, 0)) || !localTime.isBefore(LocalTime.of(23, 30))) {
             return null;
         }
         Lesson lesson = state.lessons.stream().filter(item -> !item.paused && !item.missedNoticeSent
                         && item.accepted == 0 && item.pending == null && !item.end().isAfter(now)
-                        && !item.end().isBefore(now.minus(Duration.ofHours(16))))
+                        && !item.end().isBefore(now.minus(Duration.ofHours(20))))
                 .max(Comparator.comparing(item -> item.start)).orElse(null);
         if (lesson == null) {
             return null;

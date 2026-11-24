@@ -93,39 +93,53 @@ class PreparedLessonsAndCheckinsTest {
         var database = jdbc();
         var store = new StateStore(database, json);
         var day = LocalDate.of(2026, 11, 16);
-        var morning = Instant.parse("2026-11-16T07:00:00Z");
+        var first = Instant.parse("2026-11-16T15:00:00Z"); // 18:00 Moscow, the first reminder since 2026-11-23
         store.write(state -> {
-            planner.resetStudy(state, day, morning);
+            planner.resetStudy(state, day, first);
             state.exactReminders = true;
-            assertThat(planner.nextNotice(state, morning.minusSeconds(1))).isNull();
-            var notice = planner.nextNotice(state, morning);
-            assertThat(notice.text()).contains("Зачтено 0 из 4 шагов", "Шаг 1 · Теория");
+            assertThat(planner.nextNotice(state, Instant.parse("2026-11-16T07:00:00Z"))).isNull(); // no morning ones
+            assertThat(planner.nextNotice(state, first.minusSeconds(1))).isNull();
+            var notice = planner.nextNotice(state, first);
+            assertThat(notice.text()).contains("Зачтено 0 из 4 шагов", "Шаг 1 · Теория").doesNotContain("утро");
             planner.markNotice(state, notice);
             return null;
         });
         var reopened = new StateStore(database, json);
         reopened.write(state -> {
-            assertThat(planner.nextNotice(state, morning.plusSeconds(30))).isNull();
+            assertThat(planner.nextNotice(state, first.plusSeconds(30))).isNull();
             var lesson = state.lessons.getFirst();
             lesson.started = true;
             lesson.position = 1;
             lesson.accepted = 1;
-            var afternoon = morning.plusSeconds(4 * 3600);
-            var notice = planner.nextNotice(state, afternoon);
+            var second = first.plusSeconds(2 * 3600); // 20:00
+            var notice = planner.nextNotice(state, second);
             assertThat(notice.text()).contains("Зачтено 1 из 4 шагов", "Шаг 2 · Алгоритмы");
             planner.markNotice(state, notice);
-            var evening = afternoon.plusSeconds(4 * 3600);
-            lesson.pending = new MentorState.Attempt("Решение на проверке", evening.minusSeconds(5));
-            assertThat(planner.nextNotice(state, evening)).isNull();
+            var third = second.plusSeconds(5400); // 21:30
+            lesson.pending = new MentorState.Attempt("Решение на проверке", third.minusSeconds(5));
+            assertThat(planner.nextNotice(state, third)).isNull();
             lesson.pending = null;
-            var last = evening.plusSeconds(2 * 3600 + 1800); // 20:30, the fourth reminder
-            var lastNotice = planner.nextNotice(state, last);
-            assertThat(lastNotice.flexibleSlot()).isEqualTo(4);
+            var fourth = first.plusSeconds(4 * 3600 + 2700); // 22:45, the fourth reminder
+            var fourthNotice = planner.nextNotice(state, fourth);
+            assertThat(fourthNotice.flexibleSlot()).isEqualTo(4);
+            planner.markNotice(state, fourthNotice);
+            assertThat(planner.nextNotice(state, fourth.plusSeconds(30))).isNull();
+            // After midnight the reminders go on for the same study day, until 04:00.
+            var night = Instant.parse("2026-11-16T21:35:00Z"); // 00:35 Moscow: the 23:30 one expired, the 00:30 one is due
+            var nightNotice = planner.nextNotice(state, night);
+            assertThat(nightNotice.flexibleSlot()).isEqualTo(6);
+            assertThat(nightNotice.text()).contains("Урок #1", "Шаг 2 · Алгоритмы");
+            planner.markNotice(state, nightNotice);
+            var lastCall = Instant.parse("2026-11-16T23:35:00Z"); // 02:35 Moscow, the last reminder
+            var lastNotice = planner.nextNotice(state, lastCall);
+            assertThat(lastNotice.flexibleSlot()).isEqualTo(8);
+            assertThat(lastNotice.text()).contains("до 04:00 1 ч");
             planner.markNotice(state, lastNotice);
-            assertThat(planner.nextNotice(state, last.plusSeconds(30))).isNull();
+            assertThat(planner.nextNotice(state, Instant.parse("2026-11-17T00:40:00Z"))).isNull(); // 03:40
+            assertThat(planner.nextNotice(state, Instant.parse("2026-11-17T01:30:00Z"))).isNull(); // 04:30, new day
             lesson.position = 4;
             lesson.accepted = 4;
-            assertThat(planner.nextNotice(state, last)).isNull();
+            assertThat(planner.nextNotice(state, lastCall)).isNull();
             return null;
         });
     }
@@ -134,21 +148,21 @@ class PreparedLessonsAndCheckinsTest {
     void dailyRemindersRespectPriorMorningNoticeAndPausedDays() {
         var planner = new Planner();
         var state = new MentorState();
-        var morning = Instant.parse("2026-11-16T07:00:00Z");
-        var day = Planner.date(state, morning);
-        planner.resetStudy(state, day, morning);
+        var first = Instant.parse("2026-11-16T15:00:00Z"); // 18:00 Moscow, the first reminder slot
+        var day = Planner.date(state, first);
+        planner.resetStudy(state, day, first);
         state.exactReminders = true;
-        // A database from the previous version only has the morning flag.
+        // A database from the previous version only has the start flag: the first slot counts as sent.
         state.lessons.getFirst().startSent = true;
-        assertThat(planner.nextNotice(state, morning)).isNull();
-        var afternoon = morning.plusSeconds(4 * 3600);
-        assertThat(planner.nextNotice(state, afternoon).flexibleSlot()).isEqualTo(2);
-        assertThat(planner.nextNotice(state, afternoon.plusSeconds(3600))).isNull();
-        planner.skipDay(state, day, afternoon);
-        assertThat(planner.nextNotice(state, afternoon)).isNull();
-        var nextMorning = morning.plusSeconds(86_400);
-        planner.pause(state, day.plusDays(1), nextMorning);
-        assertThat(planner.nextNotice(state, nextMorning)).isNull();
+        assertThat(planner.nextNotice(state, first)).isNull();
+        var second = first.plusSeconds(2 * 3600); // 20:00
+        assertThat(planner.nextNotice(state, second).flexibleSlot()).isEqualTo(2);
+        assertThat(planner.nextNotice(state, second.plusSeconds(3600))).isNull(); // 21:00: expired, 21:30 not yet
+        planner.skipDay(state, day, second);
+        assertThat(planner.nextNotice(state, second)).isNull();
+        var nextDay = first.plusSeconds(86_400);
+        planner.pause(state, day.plusDays(1), nextDay);
+        assertThat(planner.nextNotice(state, nextDay)).isNull();
     }
 
     @Test

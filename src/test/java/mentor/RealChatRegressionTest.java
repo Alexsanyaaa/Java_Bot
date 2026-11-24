@@ -214,7 +214,7 @@ class RealChatRegressionTest {
         assertThat(Planner.tail(state, tuesdayNight)).isSameAs(first);
         assertThat(Planner.streak(state, tuesdayNight)).isEqualTo(1);
 
-        Instant tuesdayMorning = Instant.parse("2026-11-17T07:05:00Z");
+        Instant tuesdayMorning = Instant.parse("2026-11-17T15:05:00Z"); // 18:05, the first reminder of the day
         var notice = planner.nextNotice(state, tuesdayMorning);
         assertThat(notice.text()).contains("Урок #2", "Зачтено 0 из 4", "Шаг 1").doesNotContain("долг", "Урок #1");
 
@@ -251,14 +251,19 @@ class RealChatRegressionTest {
         var state = new MentorState();
         var planner = new Planner();
         for (int day = 0; day < 30; day++) {
-            var times = Planner.reminderTimes(state, java.time.LocalDate.of(2026, 11, 1).plusDays(day));
+            var date = java.time.LocalDate.of(2026, 11, 1).plusDays(day);
+            var times = Planner.reminderTimes(state, date);
+            // Compared as moments of the study day: the night slots (00:30…02:30) come after the evening ones.
             for (int i = 0; i < times.size(); i++) {
-                long shift = java.time.Duration.between(Planner.DAILY_REMINDERS.get(i), times.get(i)).toMinutes();
-                assertThat(shift).isBetween(-30L, 50L);
-                if (i > 0) assertThat(times.get(i)).isAfter(times.get(i - 1));
+                Instant base = Planner.reminderAt(state, date, Planner.DAILY_REMINDERS.get(i));
+                Instant actual = Planner.reminderAt(state, date, times.get(i));
+                assertThat(java.time.Duration.between(base, actual).toMinutes()).isBetween(-30L, 50L);
+                if (i > 0) assertThat(actual).isAfter(Planner.reminderAt(state, date, times.get(i - 1)));
             }
-            assertThat(times.getLast()).isBefore(java.time.LocalTime.of(23, 59));
-            assertThat(times.getFirst()).isBetween(java.time.LocalTime.of(9, 30), java.time.LocalTime.of(10, 30));
+            // Evening and night only (2026-11-23): the first one around 18:00, the last one well before 04:00.
+            assertThat(times.getFirst()).isBetween(java.time.LocalTime.of(17, 30), java.time.LocalTime.of(18, 30));
+            assertThat(Planner.reminderAt(state, date, times.getLast()))
+                    .isBefore(Planner.at(state, date.plusDays(1), java.time.LocalTime.of(3, 0)));
         }
 
         var json = JsonMapper.builder().build();
