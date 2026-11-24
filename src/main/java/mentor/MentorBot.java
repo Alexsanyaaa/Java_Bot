@@ -126,10 +126,30 @@ final class MentorBot {
         }
     }
 
+    private volatile boolean restartChecked;
+
+    /**
+     * On start: an update the previous process took but never finished is asked from Telegram again (Telegram keeps
+     * it until a getUpdates call with a higher offset). Only once per update, so a message that crashes the bot
+     * does not loop. Returns whether the offset was moved back.
+     */
+    static boolean redeliverCutOffUpdate(MentorState state) {
+        long cut = state.inFlightUpdate;
+        state.inFlightUpdate = 0;
+        if (cut == 0 || cut == state.redeliveredUpdate || cut + 1 != state.updateOffset) return false;
+        state.redeliveredUpdate = cut;
+        state.updateOffset = cut;
+        return true;
+    }
+
     @Scheduled(fixedDelay = 1000)
     void poll() {
         if (!telegram.enabled()) {
             return;
+        }
+        if (!restartChecked) {
+            restartChecked = true;
+            if (store.write(MentorBot::redeliverCutOffUpdate)) LOG.info("Telegram: сообщение, прерванное перезапуском, запрошено заново");
         }
         try {
             for (JsonNode update : telegram.updates(store.read(state -> state.updateOffset))) {
@@ -138,13 +158,23 @@ final class MentorBot {
                 // hangs, a reply may arrive late, but it is never re-sent and never multiplied.
                 store.write(state -> {
                     state.updateOffset = Math.max(state.updateOffset, updateId + 1);
+                    state.inFlightUpdate = updateId;
                     state.pendingCommandReply = null;
                     return null;
                 });
+                boolean stopped = false;
                 try {
                     handle(update);
                 } catch (IOException | RuntimeException failure) {
                     LOG.warn("Telegram: ответ на сообщение не отправлен ({})", failure.getClass().getSimpleName());
+                } catch (InterruptedException stopping) {
+                    stopped = true; // shutting down mid-answer: leave inFlightUpdate for the next start
+                    throw stopping;
+                } finally {
+                    if (!stopped) store.write(state -> {
+                        if (state.inFlightUpdate == updateId) state.inFlightUpdate = 0;
+                        return null;
+                    });
                 }
             }
         } catch (InterruptedException failure) {

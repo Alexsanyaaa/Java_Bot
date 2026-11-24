@@ -47,7 +47,7 @@ final class TelegramApi {
 
     JsonNode updates(long offset) throws IOException, InterruptedException {
         return request("getUpdates", Map.of("offset", offset, "timeout", 20,
-                "allowed_updates", List.of("message", "callback_query")));
+                "allowed_updates", List.of("message", "callback_query", "message_reaction")));
     }
 
     /** Shows «печатает…» in the chat for about five seconds. */
@@ -107,6 +107,13 @@ final class TelegramApi {
         }
     }
 
+    /** Told about every sent message (id, text), so a later reaction can be matched to what it was put on. */
+    private volatile java.util.function.BiConsumer<Long, String> sentListener = (id, text) -> {};
+
+    void onSent(java.util.function.BiConsumer<Long, String> listener) {
+        this.sentListener = listener;
+    }
+
     synchronized long send(long chat, String text, Button... buttons) throws IOException, InterruptedException {
         return sendText(chat, new TelegramText(text, List.of()), buttons);
     }
@@ -143,7 +150,13 @@ final class TelegramApi {
                     .mapToObj(row -> List.of(java.util.Arrays.copyOfRange(buttons, row * 2, Math.min(row * 2 + 2, buttons.length))))
                     .toList()));
         }
-        return request("sendMessage", body).path("message_id").asLong();
+        long id = request("sendMessage", body).path("message_id").asLong();
+        try {
+            sentListener.accept(id, text);
+        } catch (RuntimeException ignored) {
+            // Remembering the text is a nicety for reactions; it must never break sending.
+        }
+        return id;
     }
 
     void document(long chat, Path path) throws IOException, InterruptedException {

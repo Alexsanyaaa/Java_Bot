@@ -546,7 +546,9 @@ final class MentorModel {
         // something the student had sent ("ты мне шпаргалку скинул").
         messages.add(Map.of("role", "system", "content", instructions
                 + "\n\nТвои внутренние заметки. Их видишь только ты; ученик их не писал и не видит, никогда не упоминай их. "
-                + "Статус уроков здесь точный:\n" + studyContext
+                + "Статус уроков здесь точный, а в переписке могут быть и прошлые учебные дни (они помечены датой): "
+                + "помни их — что он рассказывал, на чём буксовал, что обещал, о чём вы спорили, и цепляйся к этому, — "
+                + "но текущий урок и шаг бери только отсюда, а не из старой переписки:\n" + studyContext
                 + (projectCheckin.isBlank() ? "" : "\nПроектный запрос:\n" + projectCheckin)));
         for (var exchange : history) {
             if (!exchange.question().isBlank()) appendMessage(messages, "user",

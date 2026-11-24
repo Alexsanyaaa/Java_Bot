@@ -41,6 +41,12 @@ final class MentorState {
     public int interviewTurn;
     public long ownerChat;
     public long updateOffset;
+    /**
+     * The update being answered right now (0 when idle). If the process dies mid-answer (a deploy, 2026-11-24: a photo
+     * was lost), the next start asks Telegram for it again — once, so an update that kills the bot cannot loop.
+     */
+    public long inFlightUpdate;
+    public long redeliveredUpdate;
     public CommandReply pendingCommandReply;
     /** Model-accepted steps per day; two or more keep the streak alive. */
     public Map<LocalDate, Integer> stepsByDay = new LinkedHashMap<>();
@@ -75,6 +81,10 @@ final class MentorState {
     public Instant lastReminderAt;
     /** Last successfully sent chat reaction; survives restarts so reactions stay sparse. */
     public Instant lastReactionAt;
+    /** The bot's latest messages (Telegram id → text, newest last), so Oleg knows what a reaction was put on. */
+    public Map<Long, String> sentMessages = new LinkedHashMap<>();
+    /** When Oleg last answered one of the owner's reactions; keeps him from replying to every emoji. */
+    public Instant lastReactionReplyAt;
 
     record CommandReply(long updateId, long chat, String text, List<TelegramApi.Button> buttons) {}
 

@@ -279,7 +279,9 @@ class MentorFlowTest {
             clock.now = Instant.parse("2026-11-16T21:01:00Z"); // Tuesday in Moscow.
             updates.add(message(28, 123, "Что уже зачтено?"));
             restarted.poll();
-            assertThat(llmCalls.getLast().path("messages").size()).isEqualTo(2);
+            // 2026-11-24: yesterday's talk stays in the history, marked as a past day; the notes stay authoritative.
+            assertThat(llmCalls.getLast().path("messages").toString())
+                    .contains("вчерашний учебный день, это уже прошло", "Уточнение 22", "Что уже зачтено?");
             assertThat(llmCalls.getLast().path("messages").path(0).path("content").asText())
                     .contains("Зачтённые шаги предыдущих уроков", "#1 · 2026-11-16 · 3/4", "Two Sum")
                     .doesNotContain("строки Aa и BB", "Уточнение 22");

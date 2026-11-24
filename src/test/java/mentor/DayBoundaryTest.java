@@ -61,7 +61,10 @@ class DayBoundaryTest {
         planner.evaluate(state, FOUR_AM);
         assertThat(Planner.date(state, FOUR_AM)).isEqualTo(DAY.plusDays(1));
         assertThat(Planner.active(state, FOUR_AM)).isSameAs(state.lessons.get(1));
-        assertThat(DayMemory.dialogue(state, FOUR_AM)).isEmpty();
+        // 2026-11-24: yesterday stays in Oleg's memory, marked as a past day.
+        var memory = DayMemory.dialogue(state, FOUR_AM);
+        assertThat(memory.getFirst().question()).contains("21.11", "вчерашний учебный день");
+        assertThat(memory.getLast().question()).contains("22.11", "сегодня пока не говорили");
         assertThat(Planner.label(state, lesson)).isEqualTo("2026-11-21 · сдать до 22.11 04:00");
         lesson.carried = true;
         lesson.flexibleEnd = lesson.flexibleEnd.plusSeconds(86_400);
