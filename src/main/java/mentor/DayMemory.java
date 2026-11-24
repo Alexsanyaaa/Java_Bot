@@ -77,7 +77,8 @@ final class DayMemory {
         for (var item : state.conversation.reversed()) {
             // Plain chat messages of the day count too: an answer written before the bot understood it is not lost.
             boolean chat = item.submissionLesson() == null && !item.question().isBlank()
-                    && !item.question().startsWith("/") && item.question().length() >= 3;
+                    && !item.question().startsWith("/") && !item.question().startsWith("(реакция ")
+                    && item.question().length() >= 3;
             if (!chat && (item.submissionLesson() == null || item.submissionLesson() != lessonId)
                     || item.at() == null || !Planner.date(state, item.at()).equals(day)
                     || item.at().isAfter(current.submittedAt()) || current.text().contains(item.question())) continue;

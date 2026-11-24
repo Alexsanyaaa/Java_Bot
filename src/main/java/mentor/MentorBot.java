@@ -121,6 +121,10 @@ final class MentorBot {
         this.projectPdf = projectPdf;
         this.springPdf = springPdf;
         this.t04bSsh = t04bSsh;
+        telegram.onSent((id, text) -> store.write(state -> {
+            rememberSent(state, id, text);
+            return null;
+        }));
         if (!telegram.enabled()) {
             LOG.info("Telegram не настроен. Добавь TELEGRAM_BOT_TOKEN и TELEGRAM_OWNER_ID.");
         }
@@ -379,7 +383,91 @@ final class MentorBot {
         }
     }
 
+    static final int SENT_MEMORY = 60;
+    static final String SILENT = "[[молчу]]";
+
+    static void rememberSent(MentorState state, long id, String text) {
+        if (id <= 0) return;
+        state.sentMessages.put(id, text.length() <= 800 ? text : text.substring(0, 800) + "…");
+        while (state.sentMessages.size() > SENT_MEMORY) state.sentMessages.remove(state.sentMessages.keySet().iterator().next());
+    }
+
+    /** Newly added emojis of a message_reaction update (removals and unchanged ones are not news). */
+    static List<String> addedReactions(JsonNode reaction) {
+        var before = new java.util.HashSet<String>();
+        reaction.path("old_reaction").forEach(item -> before.add(reactionName(item)));
+        var added = new java.util.ArrayList<String>();
+        reaction.path("new_reaction").forEach(item -> {
+            String name = reactionName(item);
+            if (!name.isBlank() && !before.contains(name)) added.add(name);
+        });
+        return added;
+    }
+
+    private static String reactionName(JsonNode item) {
+        return switch (item.path("type").asText()) {
+            case "emoji" -> item.path("emoji").asText();
+            case "custom_emoji" -> "(кастомный эмодзи)";
+            case "paid" -> "⭐";
+            default -> "";
+        };
+    }
+
+    /** What Oleg is told about a reaction: which emoji, on what, and that silence is allowed. */
+    static String reactionNote(List<String> emojis, String reactedText) {
+        return "(Это не текст, а реакция: ученик поставил " + String.join(" ", emojis) + " на "
+                + (reactedText == null ? "сообщение, которого уже нет в памяти"
+                : "твоё сообщение: «" + (reactedText.length() <= 500 ? reactedText : reactedText.substring(0, 500) + "…") + "»")
+                + ". Реши сам, как живой человек в чате: ответить коротко в своём стиле — подколоть за 🤡, поймать на 😁, "
+                + "ответить на 🤔 или 🤯 по смыслу, — или промолчать. На каждую реакцию отвечать не надо: на 👍, ❤ или 🔥 "
+                + "к обычному сообщению обычно молчи. Не превращай это в напоминание об уроке. Если молчишь, ответь ровно "
+                + SILENT + ".)";
+    }
+
+    /** The owner put a reaction on a message: Oleg sees it in the history and may answer, or stay silent. */
+    private void handleReaction(JsonNode reaction) throws IOException, InterruptedException {
+        if (reaction.path("user").path("id").asLong() != telegram.ownerId
+                || !reaction.path("chat").path("type").asText().equals("private")) return;
+        var added = addedReactions(reaction);
+        if (added.isEmpty()) return;
+        long chat = reaction.path("chat").path("id").asLong();
+        Instant now = clock.instant();
+        long messageId = reaction.path("message_id").asLong();
+        var snapshot = store.read(state -> state);
+        String note = reactionNote(added, snapshot.sentMessages.get(messageId));
+        String record = "(реакция " + String.join(" ", added) + " на сообщение"
+                + (snapshot.sentMessages.containsKey(messageId) ? " «" + clipStart(snapshot.sentMessages.get(messageId), 120) + "»" : "") + ")";
+        boolean quiet = snapshot.lastReactionReplyAt != null && now.isBefore(snapshot.lastReactionReplyAt.plus(Duration.ofSeconds(90)));
+        String answer = "";
+        if (!quiet) {
+            try {
+                String notes = MentorContext.snapshot(snapshot, note, now);
+                var result = model.talk(note, DayMemory.dialogue(snapshot, now), notes, "", false);
+                String text = withoutChatCredit(result.answer());
+                if (!text.contains(SILENT) && !text.isBlank()) answer = text;
+            } catch (IOException failure) {
+                LOG.debug("Ответ на реакцию не получился: {}", failure.getClass().getSimpleName());
+            }
+        }
+        String reply = answer;
+        store.write(state -> {
+            DayMemory.remember(state, now, record, reply, null);
+            if (!reply.isBlank()) state.lastReactionReplyAt = now;
+            return null;
+        });
+        if (!reply.isBlank()) telegram.sendFormatted(chat, reply);
+    }
+
+    private static String clipStart(String text, int limit) {
+        String flat = text.replace("\n", " ");
+        return flat.length() <= limit ? flat : flat.substring(0, limit) + "…";
+    }
+
     private void handle(JsonNode update) throws IOException, InterruptedException {
+        if (update.has("message_reaction")) {
+            handleReaction(update.path("message_reaction"));
+            return;
+        }
         JsonNode callback = update.path("callback_query");
         boolean clicked = !callback.isMissingNode();
         JsonNode message = clicked ? callback.path("message") : update.path("message");

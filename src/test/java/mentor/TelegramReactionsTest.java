@@ -125,6 +125,53 @@ class TelegramReactionsTest {
         }
     }
 
+    /** 2026-11-24: «пусть видит мои реакции и может на них реагировать». */
+    @Test
+    void olegSeesTheOwnersReactionsAndMayAnswerOrStaySilent() throws Exception {
+        try (var f = new Fixture()) {
+            f.output.set("Ну давай, спроси что-нибудь про HashMap.");
+            f.message(1, 101, "Привет", Map.of());
+            f.bot.poll();
+            long olegMessage = f.store.read(s -> s.sentMessages.keySet().iterator().next());
+            assertThat(f.store.<String>read(s -> s.sentMessages.get(olegMessage))).contains("HashMap");
+
+            // 🤡 on Oleg's message: the model is told what it was put on and answers.
+            f.output.set("Клоуна мне? Сам ты цирк, марш учить equals.");
+            f.reaction(2, olegMessage, List.of("🤡"), List.of());
+            f.bot.poll();
+            String told = f.modelCalls.getLast().path("messages").toString();
+            assertThat(told).contains("реакция: ученик поставил 🤡", "спроси что-нибудь про HashMap", "[[молчу]]");
+            assertThat(f.sent.getLast().path("text").asText()).isEqualTo("Клоуна мне? Сам ты цирк, марш учить equals.");
+            assertThat(f.store.<String>read(s -> s.conversation.getLast().question())).startsWith("(реакция 🤡 на сообщение «");
+
+            // Within 90 seconds another reaction is only remembered, no model call and no reply.
+            int calls = f.modelCalls.size();
+            int sentBefore = f.sent.size();
+            f.reaction(3, olegMessage, List.of("🤡", "🔥"), List.of("🤡"));
+            f.bot.poll();
+            assertThat(f.modelCalls).hasSize(calls);
+            assertThat(f.sent).hasSize(sentBefore);
+            assertThat(f.store.<String>read(s -> s.conversation.getLast().question())).startsWith("(реакция 🔥");
+
+            // Later: the model may choose silence.
+            f.restart(NOW.plusSeconds(200));
+            f.output.set("[[молчу]]");
+            f.reaction(4, olegMessage, List.of("👍"), List.of());
+            f.bot.poll();
+            assertThat(f.modelCalls).hasSize(calls + 1);
+            assertThat(f.sent).hasSize(sentBefore);
+
+            // A removed reaction and a stranger's reaction are ignored.
+            f.reaction(5, olegMessage, List.of(), List.of("👍"));
+            f.updates.add(Map.of("update_id", 6L, "message_reaction", Map.of("chat", Map.of("id", 999, "type", "private"),
+                    "message_id", olegMessage, "user", Map.of("id", 999), "date", 1,
+                    "old_reaction", List.of(), "new_reaction", List.of(Map.of("type", "emoji", "emoji", "🔥")))));
+            f.bot.poll();
+            assertThat(f.modelCalls).hasSize(calls + 1);
+            assertThat(f.sent).hasSize(sentBefore);
+        }
+    }
+
     @Test
     @EnabledIfEnvironmentVariable(named = "MENTOR_LIVE_REACTIONS", matches = "1")
     void liveModelChoosesReactionAlongsideItsAnswer() throws Exception {
@@ -198,6 +245,13 @@ class TelegramReactionsTest {
             message.putAll(Map.of("message_id", messageId, "from", Map.of("id", 123),
                     "chat", Map.of("id", 123, "type", "private"), "text", text));
             updates.add(Map.of("update_id", update, "message", message));
+        }
+
+        void reaction(long update, long messageId, List<String> now, List<String> before) {
+            updates.add(Map.of("update_id", update, "message_reaction", Map.of(
+                    "chat", Map.of("id", 123, "type", "private"), "message_id", messageId, "user", Map.of("id", 123),
+                    "date", 1, "old_reaction", before.stream().map(e -> Map.of("type", "emoji", "emoji", e)).toList(),
+                    "new_reaction", now.stream().map(e -> Map.of("type", "emoji", "emoji", e)).toList())));
         }
 
         public void close() { server.stop(0); }
