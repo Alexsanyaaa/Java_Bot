@@ -61,6 +61,10 @@ final class MentorModel {
     private String reviewModels = "";
     @Value("${mentor.llm.router-models:}")
     private String routerModels = "";
+    private static final String DEFAULT_PLAN_MODELS =
+            "gemini:gemini-3.6-flash,nvidia/nemotron-3.5-super-vl:free,nvidia/nemotron-3-ultra-550b-a55b:free";
+    @Value("${mentor.llm.plan-models:" + DEFAULT_PLAN_MODELS + "}")
+    private String planModels = DEFAULT_PLAN_MODELS;
     private final String model;
     private final String key;
     private String groqBase = GROQ_BASE;
@@ -75,6 +79,44 @@ final class MentorModel {
 
     boolean enabled() {
         return !model.isBlank();
+    }
+
+    private List<String> planChain() {
+        return java.util.Arrays.stream(planModels.split(",")).map(String::strip).filter(candidate -> {
+            if (candidate.startsWith(GEMINI_PREFIX)) return !geminiKey.isBlank();
+            return candidate.startsWith("nvidia/nemotron-") && candidate.endsWith(":free") && !key.isBlank();
+        }).distinct().toList();
+    }
+
+    boolean planningEnabled() {
+        return !planChain().isEmpty();
+    }
+
+    private static final String PLAN_RULES = """
+            Ты методист подготовки к стажировке Java backend. Собери последовательность уроков на даты из slots.
+            На каждый день выбери один id из candidates. Сохрани порядок дат и используй уникальные id.
+            Обязательно включи все варианты с required=true. Остальные выбирай по учебной ценности.
+            Учитывай mastered, уже назначенные уроки из scheduled, дату прошлого урока и пробелы.
+            По возможности чередуй Java, Spring и PostgreSQL.
+            Ставь базу прежде продолжения: Stream API до Collectors, JOIN и агрегаты до индексов,
+            основы потоков до пулов, Spring MVC до ошибок HTTP и MockMvc, уровни тестов до MockMvc.
+            Подтверждённая база уже пройдена. Если выбор только из знакомых тем, бери те, которые были раньше всего.
+            Не придумывай задания, ссылки и даты. Для каждой позиции верни только id темы.
+            Ответ строго в виде JSON: {"topics":["id1","id2"]}. Число id равно числу slots.
+            """;
+
+    List<String> plan(Planner.PlanRequest request) throws IOException, InterruptedException {
+        String input = json.writeValueAsString(request);
+        return request("plan", planChain(), messages(PLAN_RULES, input), 6000, output -> {
+            JsonNode choices = modelObject(output).path("topics");
+            if (!choices.isArray() || choices.size() != request.slots().size()) {
+                throw new RetryableFailure("неверное число тем в плане");
+            }
+            var topics = new ArrayList<String>();
+            for (var choice : choices) topics.add(choice.asText());
+            if (!request.allows(topics)) throw new RetryableFailure("неподходящие или повторяющиеся темы");
+            return List.copyOf(topics);
+        }, true);
     }
 
     boolean voiceEnabled() {
@@ -489,8 +531,9 @@ final class MentorModel {
             """;
 
     private static final String DAILY_REFERENCE = """
-            Сейчас ты дневной ментор по подготовке к собесу. Справка: план собирает сам бот (теория, LeetCode,
-            вопрос собеса, практика по теме дня). /lesson ID — карточка урока, /today — текущий шаг. Номер вида #1 —
+            Сейчас ты дневной ментор по подготовке к собесу. Темы будущих уроков выбирает отдельный ИИ-методист.
+            Бот сохраняет план и собирает карточки из каталога: теория, LeetCode, вопрос собеса и практика.
+            /lesson ID — карточка урока, /today — текущий шаг. Номер вида #1 —
             номер урока, а не шага. Школа 21 (T04B) — у школьного ментора, он включается кнопкой «🏫 Школа 21»;
             про детали проекта отправляй туда.
             """;
@@ -679,12 +722,13 @@ final class MentorModel {
 
     private <T> T request(String purpose, List<String> attempts, List<Map<String, String>> messages, int maxTokens,
                           Decode<T> decode, boolean structured) throws IOException, InterruptedException {
-        if (!enabled()) {
+        if (!enabled() && !purpose.equals("plan")) {
             throw new IOException("Поставщик модели не настроен");
         }
         // Free tiers answer «try again in N seconds» (Groq: ~8k tokens per minute and model). Instead of giving up,
         // wait for the soonest model to free up and go through the chain again, within a per-purpose budget.
         long budget = switch (purpose) {
+            case "plan" -> 0;
             case "router" -> 8_000;
             case "chat", "review" -> 25_000;
             default -> 10_000;
@@ -703,6 +747,10 @@ final class MentorModel {
                 } catch (java.net.http.HttpTimeoutException | java.net.ConnectException failure) {
                     last = failure;
                     LOG.warn("[{}] модель {} не ответила ({})", purpose, candidate, failure.getClass().getSimpleName());
+                } catch (IOException failure) {
+                    if (!purpose.equals("plan")) throw failure;
+                    last = failure;
+                    LOG.warn("[plan] модель {} не ответила ({})", candidate, failure.getClass().getSimpleName());
                 }
             }
             if (soonest == Long.MAX_VALUE || waited + soonest > budget) break;
@@ -761,6 +809,7 @@ final class MentorModel {
         if (!groq && purpose.equals("chat")) body.put("max_tokens", Math.max(maxTokens, 6000));
         var builder = HttpRequest.newBuilder(URI.create((groq ? groqBase : gemini ? geminiBase : base) + "/chat/completions"))
                 .timeout(Duration.ofSeconds(switch (purpose) {
+                    case "plan" -> 45;
                     case "router" -> 15;
                     case "chat" -> groq ? 40 : 180; // a thinking model may take minutes; the user sees «печатает…»
                     default -> 60;

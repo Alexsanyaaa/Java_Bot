@@ -122,6 +122,39 @@ final class StudyMaterials {
                     new Reading("Spring: интеграционные тесты (англ.)", "https://docs.spring.io/spring-framework/reference/testing/integration.html", 13,
                             "Проверку связей компонентов, контекста и транзакций с инфраструктурой.",
                             "Введение и Goals of Integration Testing; отдельные главы TestContext пока не открывать."));
+            case "generics" -> List.of(new Reading("Dev.java: Generics", "https://dev.java/learn/generics/", 25,
+                    "Инвариантность, upper and lower bounded wildcards.",
+                    "Подразделы про wildcards, включая рекомендации, когда использовать extends и super."));
+            case "optional" -> List.of(new Reading("Java 21: Optional",
+                    "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/Optional.html", 25,
+                    "ofNullable, map, flatMap, orElse и orElseGet.",
+                    "Прочитай описания этих методов и сравни поведение для пустого Optional."));
+            case "executors" -> List.of(new Reading("Java 21: ExecutorService",
+                    "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ExecutorService.html",
+                    25, "submit, Future, жизненный цикл пула.",
+                    "Введение, примеры использования и определения submit и close."));
+            case "sql-aggregates" -> List.of(new Reading("PostgreSQL: Aggregate Functions",
+                    "https://www.postgresql.org/docs/current/tutorial-agg.html", 25,
+                    "Порядок фильтрации WHERE, группировки GROUP BY и отбора групп HAVING.",
+                    "Разбери два последних примера с GROUP BY и HAVING и придумай свой набор из 5 строк."));
+            case "indexes" -> List.of(
+                    new Reading("PostgreSQL: Indexes", "https://www.postgresql.org/docs/current/indexes-intro.html",
+                            10, "Зачем нужен индекс и как он влияет на вставки.", "Только введение."),
+                    new Reading("PostgreSQL: EXPLAIN", "https://www.postgresql.org/docs/current/using-explain.html",
+                            15, "Seq Scan, Index Scan и оценка числа строк.",
+                            "EXPLAIN Basics, первые примеры. EXPLAIN ANALYZE оставь на потом."));
+            case "spring-errors" -> List.of(new Reading("Spring: Exceptions",
+                    "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-exceptionhandler.html",
+                    25, "@ExceptionHandler, @ControllerAdvice, ResponseEntity.",
+                    "Введение, пример обработчика и возвращаемые значения. Форматы представлений пропусти."));
+            case "collectors" -> List.of(new Reading("Java 21: Collectors",
+                    "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/stream/Collectors.html",
+                    25, "groupingBy, counting и toMap с функцией слияния.",
+                    "Вводные примеры и только перегрузки для перечисленных операций."));
+            case "mockmvc" -> List.of(new Reading("Spring: MockMvc",
+                    "https://docs.spring.io/spring-framework/reference/testing/mockmvc.html", 25,
+                    "Цель MockMvc, настройка, запрос и проверка результата.",
+                    "Введение и первые примеры Setup Choices и Performing Requests. Достаточно одного теста."));
             default -> List.of();
         };
     }

@@ -132,6 +132,7 @@ final class MentorState {
         public int moves;
         public String moveReason;
         public boolean started;
+        public boolean aiPlanned;
         public boolean paused;
         public boolean preSent;
         public boolean startSent;

@@ -140,7 +140,55 @@ final class LearningCatalog {
                     "Юнит-тест проверяет граничные значения (например 999 и 1000) через assertEquals без БД и Spring. "
                             + "Интеграционный ловит ошибки маппинга, схемы, SQL или транзакций.",
                     "Какие ошибки найдёт интеграционный тест с БД, которые пропустит заглушка?",
-                    "Приводит пример ошибки схемы, отображения или поведения транзакции.")
+                    "Приводит пример ошибки схемы, отображения или поведения транзакции."),
+            new Topic("generics", "Generics и wildcards",
+                    "Напиши copyNumbers, который копирует числа из List<Integer> или List<Double> в List<Number>.\n"
+                            + "Пришли: сигнатуру, тело и пояснение, в какой список можно добавлять элементы.",
+                    "Источник читает через List<? extends Number>, приёмник принимает Number через List<? super Number>.",
+                    "Почему List<Integer> нельзя присвоить переменной List<Number>?",
+                    "Обобщённые типы инвариантны. Иначе через ссылку List<Number> в список Integer можно было бы добавить Double."),
+            new Topic("optional", "Optional и отсутствие результата",
+                    "Репозиторий возвращает Optional<User>. Получи Optional<String> с email из найденного пользователя.\n"
+                            + "Пришли: код для пустого результата и для пользователя с email.",
+                    "Использует map без принудительного get, отсутствие значения сохраняется.",
+                    "Чем orElse отличается от orElseGet, если вычисление значения по умолчанию дорогое?",
+                    "Аргумент orElse вычисляется при вызове метода, Supplier в orElseGet выполняется только при пустом Optional."),
+            new Topic("executors", "ExecutorService и Future",
+                    "Напиши пример с пулом из двух потоков и двумя Callable<Integer>. Собери сумму результатов.\n"
+                            + "Пришли: код с завершением пула и объяснение, где поток ждёт.",
+                    "Есть submit для обеих задач, Future.get ожидает результаты, пул закрывается даже при ошибке.",
+                    "В каком потоке выполняется Callable и где проявится исключение из неё?",
+                    "Задачу выполняет executor, Future.get в ожидающем потоке бросает ExecutionException с исходной причиной."),
+            new Topic("sql-aggregates", "SQL: GROUP BY и HAVING",
+                    "Найди покупателей, оформивших минимум два оплаченных заказа. Таблица orders(user_id, status).\n"
+                            + "Пришли: запрос и пояснение, какие строки отбрасывает WHERE и какие группы HAVING.",
+                    "WHERE оставляет оплаченные строки, группировка идёт по user_id, HAVING COUNT(*) >= 2 выбирает группы.",
+                    "Почему условие COUNT(*) >= 2 обычно пишут в HAVING, а не WHERE?",
+                    "WHERE фильтрует строки перед агрегацией, HAVING фильтрует группы с вычисленными агрегатами."),
+            new Topic("indexes", "PostgreSQL: индексы и EXPLAIN",
+                    "Для часто выполняемого поиска заказов по user_id предложи индекс.\n"
+                            + "Пришли: SQL создания и команду для просмотра плана запроса, объясни цену индекса при записи.",
+                    "Индекс по orders(user_id) подходит для него, EXPLAIN показывает выбранный план, индекс занимает место и поддерживается при записи.",
+                    "Почему PostgreSQL может выбрать Seq Scan даже при наличии подходящего индекса?",
+                    "Если таблица мала или запрос читает большую долю строк, последовательное чтение может стоить дешевле."),
+            new Topic("spring-errors", "Spring MVC: обработка ошибок API",
+                    "Опиши, как превратить OrderNotFoundException в HTTP 404 с полями code и message.\n"
+                            + "Пришли: обработчик и пример JSON.",
+                    "Использует @ExceptionHandler в @RestControllerAdvice или эквивалент, явно задаёт HTTP 404 и тело.",
+                    "Зачем выносить обработку исключений из каждого контроллера в @RestControllerAdvice?",
+                    "Общее сопоставление исключений HTTP-ответам даёт единый формат и убирает дублирование."),
+            new Topic("collectors", "Stream API: Collectors",
+                    "Из списка заказов собери Map<String, Long> с числом заказов по статусам.\n"
+                            + "Пришли: код и результат для двух PAID и одного NEW.",
+                    "Использует groupingBy по статусу и counting либо эквивалентный Collector, сохраняет количество для каждого статуса.",
+                    "Что произойдёт у Collectors.toMap, если ключ встретится дважды и функция слияния не задана?",
+                    "Будет IllegalStateException. Можно явно задать функцию слияния или выбрать groupingBy."),
+            new Topic("mockmvc", "Spring MVC: тесты с MockMvc",
+                    "Набросай MockMvc-тест GET /orders/42, который проверяет HTTP 200 и поле id в JSON.\n"
+                            + "Пришли: тест и способ задать данные для сервиса.",
+                    "Выполняет запрос через MockMvc, проверяет статус и JSON, данные контролируемые, например через заглушку сервиса.",
+                    "Что проверяет MockMvc, чего не проверит прямой вызов метода контроллера?",
+                    "Маршрутизацию, обработку HTTP-входа, сериализацию и другие настроенные компоненты MVC без запуска реального HTTP-сервера.")
     );
 
     /** Criteria for lesson cards created before the exercises were rewritten. */
@@ -299,10 +347,9 @@ final class LearningCatalog {
             "Прогони сценарии T04B целиком, включая перезапуск, 401, игру вдвоём и игру с компьютером."
     );
 
-    static List<Task> day(MentorState state, LocalDate date, int index, Set<Integer> chosen, Set<String> topics) {
-        Task theory = nextTheory(state, date, index, topics);
-        topics.add(theory.topic());
-        return List.of(theory, nextAlgorithm(state, chosen), interview(state, date, theory.topic()));
+    static List<Task> day(MentorState state, LocalDate date, String topic, Task algorithm) {
+        return new java.util.ArrayList<>(List.of(theoryForTopic(topic), algorithm, interview(state, date, topic),
+                dailyPractice(topic)));
     }
 
     static Task nextAlgorithm(MentorState state, Set<Integer> chosen) {
@@ -323,27 +370,15 @@ final class LearningCatalog {
 
     private static final List<String> STUDY_ORDER = List.of(
             "collections", "interfaces", "exceptions", "atomicity", "sql", "di", "mvc",
-            "dto", "jpa", "transactions", "streams", "http-auth", "tests");
+            "dto", "jpa", "transactions", "streams", "http-auth", "tests",
+            "generics", "optional", "executors", "sql-aggregates", "indexes", "spring-errors", "collectors", "mockmvc");
 
-    static Task nextTheory(MentorState state, LocalDate date, int index, Set<String> topics) {
-        for (String topic : STUDY_ORDER) {
-            var skill = state.skills.get(topic);
-            if (!topics.contains(topic) && skill != null && !skill.demonstrated() && !skill.reviewOn().isAfter(date)
-                    && state.lessons.stream().noneMatch(lesson -> !lesson.paused
-                            && !Planner.date(state, lesson.start).isBefore(date)
-                            && lesson.tasks.getFirst().topic().equals(topic))) {
-                return theoryForTopic(topic);
-            }
-        }
-        for (int step = 0; step < STUDY_ORDER.size(); step++) {
-            Task task = theory(index + step);
-            var skill = state.skills.get(task.topic());
-            if (!topics.contains(task.topic()) && !state.knownTopics.contains(task.topic()) && (skill == null || !skill.demonstrated())
-                    && state.lessons.stream().noneMatch(lesson -> !lesson.paused
-                            && !Planner.date(state, lesson.start).isBefore(date)
-                            && lesson.tasks.getFirst().topic().equals(task.topic()))) return task;
-        }
-        return theory(index);
+    static List<String> studyTopics() {
+        return STUDY_ORDER;
+    }
+
+    static String topicTitle(String id) {
+        return topic(id).title();
     }
 
     static String topicId(String name) {
@@ -501,7 +536,23 @@ final class LearningCatalog {
             java.util.Map.entry("http-auth", "Отправь curl-запрос с Basic Auth на httpbin.org/basic-auth/user/pass — с верным "
                     + "и неверным паролем.\nПришли: команды и коды ответов."),
             java.util.Map.entry("tests", "Напиши isPalindrome(String) и JUnit 5 тест на три случая, включая пустую строку."
-                    + "\nПришли: код метода и теста."));
+                    + "\nПришли: код метода и теста."),
+            java.util.Map.entry("generics", "Напиши addDefaults(List<? super Integer>), который добавит числа 10 и 20. "
+                    + "Вызови его с List<Integer> и List<Number>.\nПришли: код и вывод обоих списков."),
+            java.util.Map.entry("optional", "Напиши метод показа имени: если имя отсутствует или состоит из пробелов, "
+                    + "верни «Гость» через Optional.filter и orElse.\nПришли: код и вывод для null, пробелов и «Алекс»."),
+            java.util.Map.entry("executors", "Добавь в задачу пула IllegalStateException, обработай ExecutionException и "
+                    + "выведи класс причины.\nПришли: код и вывод."),
+            java.util.Map.entry("sql-aggregates", "Для таблицы payments(category, amount) найди категории с суммой выше 500, "
+                    + "считая только положительные платежи.\nПришли: SQL, 5 строк входных данных и результат."),
+            java.util.Map.entry("indexes", "В PostgreSQL создай таблицу событий с 10 000 строк и повторяющимся user_id. "
+                    + "Сравни EXPLAIN выборки по одному ID до и после индекса.\nПришли: запросы и названия узлов плана."),
+            java.util.Map.entry("spring-errors", "Добавь обработчик для InvalidOrderException с HTTP 400 и кодом INVALID_ORDER. "
+                    + "Проверь на одном тестовом запросе.\nПришли: код и тело ответа."),
+            java.util.Map.entry("collectors", "Собери Map<SKU, количество> из списка позиций заказа через toMap, складывая "
+                    + "количества одинаковых SKU.\nПришли: код и результат для A:2, B:1, A:3."),
+            java.util.Map.entry("mockmvc", "Напиши MockMvc-тест запроса GET /orders/not-a-number при параметре пути типа Long. "
+                    + "Проверь HTTP 400.\nПришли: тест и объяснение, доходит ли запрос до тела метода."));
 
     /** The fourth step of a daily lesson: a small hands-on task on the day's topic. School 21 lives in its own mode. */
     static Task dailyPractice(String topic) {

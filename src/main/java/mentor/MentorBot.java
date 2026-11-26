@@ -108,6 +108,31 @@ final class MentorBot {
     }
 
     private Instant nextReview = Instant.EPOCH;
+    private final java.util.concurrent.atomic.AtomicBoolean planning = new java.util.concurrent.atomic.AtomicBoolean();
+    private volatile Instant nextPlanAttempt = Instant.EPOCH;
+
+    @Scheduled(initialDelay = 5000, fixedDelay = 60_000)
+    void refreshAiPlan() {
+        Instant now = clock.instant();
+        if (!telegram.enabled() || !model.planningEnabled() || now.isBefore(nextPlanAttempt)) return;
+        if (!planning.compareAndSet(false, true)) return;
+        Thread.ofVirtual().start(() -> {
+            try {
+                var request = store.read(state -> planner.planRequest(state, clock.instant()));
+                if (request.slots().isEmpty()) return;
+                var topics = model.plan(request);
+                boolean applied = store.write(state -> planner.applyPlan(state, clock.instant(), request, topics));
+                if (applied) LOG.info("[plan] обновлено уроков: {}", topics.size());
+            } catch (IOException | RuntimeException failure) {
+                nextPlanAttempt = clock.instant().plus(Duration.ofHours(1));
+                LOG.warn("[plan] сохраняю план по каталогу ({})", failure.getClass().getSimpleName());
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+            } finally {
+                planning.set(false);
+            }
+        });
+    }
 
     MentorBot(StateStore store, Planner planner, TelegramApi telegram, MentorModel model, Clock clock,
               @Value("${mentor.material.project}") String projectPdf,
@@ -730,7 +755,8 @@ final class MentorBot {
                         + "Черновик новых занятий. "
                         + LearningCatalog.INTERVIEW_TRACK_MINUTES + " мин на теорию, алгоритмы и интервью. "
                         + LearningCatalog.PRACTICE_MINUTES + " мин на дополнительную практику.\n"
-                        + draftText(state, now) + "\nПодтверди, чтобы включить напоминания.", new Button("Подтвердить", "confirm"));
+                        + draftText(state) + "\nПодтверди, чтобы подобрать темы и включить напоминания.",
+                        new Button("Подтвердить", "confirm"));
             }
             case "/confirm" -> {
                 if (state.flexible) yield new Reply("В свободном режиме уроки появляются автоматически.");
@@ -2037,17 +2063,9 @@ final class MentorBot {
                 + "\n\nОтвет просто пиши сюда — я сам пойму, что это сдача.";
     }
 
-    private static String draftText(MentorState state, Instant now) {
-        var chosen = Planner.reservedAlgorithms(state, now);
-        var topics = new java.util.HashSet<String>();
-        int index = Math.toIntExact(state.lessons.stream().mapToLong(lesson -> lesson.id).max().orElse(0));
-        var result = new java.util.StringJoiner("\n");
-        for (var entry : state.draft.entrySet()) {
-            List<Task> tasks = LearningCatalog.day(state, entry.getKey(), index++, chosen, topics);
-            result.add(entry.getKey() + " " + entry.getValue() + " · "
-                    + shortTitle(tasks.getFirst()) + " · " + shortTitle(tasks.get(1)));
-        }
-        return result.toString();
+    private static String draftText(MentorState state) {
+        return state.draft.entrySet().stream().map(entry -> entry.getKey() + " " + entry.getValue())
+                .collect(Collectors.joining("\n"));
     }
 
     private static String upcoming(MentorState state, Instant now) {

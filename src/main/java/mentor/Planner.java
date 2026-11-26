@@ -46,6 +46,145 @@ final class Planner {
         }
     }
 
+    record PlanSlot(long id, Instant start, LocalDate day, String topic, String algorithm) {}
+    record PlanTopic(String id, String title, String status, LocalDate lastLesson, boolean required) {}
+    record PlanRequest(List<PlanSlot> slots, List<PlanTopic> candidates, List<String> mastered,
+                       List<String> scheduled) {
+        boolean allows(List<String> topics) {
+            return topics.size() == slots.size() && new HashSet<>(topics).size() == topics.size()
+                    && candidates.stream().map(PlanTopic::id).toList().containsAll(topics)
+                    && candidates.stream().filter(PlanTopic::required).allMatch(topic -> topics.contains(topic.id()));
+        }
+    }
+
+    private record TopicHistory(Set<String> mastered, java.util.Map<String, LocalDate> lastLesson) {
+        int priority(String topic) {
+            if (mastered.contains(topic)) return 2;
+            return lastLesson.containsKey(topic) ? 1 : 0;
+        }
+
+        List<String> options(Set<String> reserved) {
+            return LearningCatalog.studyTopics().stream().filter(topic -> !reserved.contains(topic))
+                    .sorted(Comparator.comparingInt(this::priority)
+                            .thenComparing(topic -> lastLesson.getOrDefault(topic, LocalDate.MIN)))
+                    .toList();
+        }
+    }
+
+    private static TopicHistory topicHistory(MentorState state, LocalDate today) {
+        var mastered = new HashSet<>(state.knownTopics);
+        state.skills.forEach((topic, skill) -> {
+            if (skill.demonstrated()) mastered.add(topic);
+        });
+        var lastLesson = new HashMap<String, LocalDate>();
+        for (var lesson : state.lessons) {
+            if (lesson.paused || lesson.tasks.isEmpty()) continue;
+            var day = date(state, lesson.start);
+            String topic = lesson.tasks.getFirst().topic();
+            if (day.isBefore(today)) lastLesson.merge(topic, day, (left, right) -> left.isAfter(right) ? left : right);
+            if (lesson.position > 0 && lesson.tasks.getFirst().type().equals("Теория")) mastered.add(topic);
+        }
+        return new TopicHistory(mastered, lastLesson);
+    }
+
+    private static boolean editable(Lesson lesson) {
+        return !lesson.paused && !lesson.started && !lesson.windowClosed && lesson.position == 0
+                && lesson.accepted == 0 && lesson.pending == null && lesson.hints == 0 && lesson.lastAttempt.isEmpty()
+                && lesson.tasks.size() == 4;
+    }
+
+    private static Set<String> reservedTopics(MentorState state, Instant now, Set<Long> excluded) {
+        var topics = new HashSet<String>();
+        LocalDate today = date(state, now);
+        for (var lesson : state.lessons) {
+            if (lesson.paused || lesson.tasks.isEmpty() || excluded.contains(lesson.id)) continue;
+            LocalDate day = date(state, lesson.start);
+            if (!day.isBefore(today.minusDays(6)) && !day.isAfter(today.plusDays(6))) {
+                topics.add(lesson.tasks.getFirst().topic());
+            }
+        }
+        return topics;
+    }
+
+    private static String nextTopic(TopicHistory history, Set<String> reserved) {
+        var options = history.options(reserved);
+        if (!options.isEmpty()) return options.getFirst();
+        return history.options(Set.of()).getFirst();
+    }
+
+    /** Replaces stale or duplicate theory cards without changing dates, algorithms or submitted work. */
+    private void repairTopics(MentorState state, Instant now) {
+        LocalDate today = date(state, now);
+        var upcoming = state.lessons.stream().filter(lesson -> !lesson.paused && lesson.end().isAfter(now)
+                        && !date(state, lesson.start).isBefore(today) && !date(state, lesson.start).isAfter(today.plusDays(6))
+                        && !lesson.tasks.isEmpty())
+                .sorted(Comparator.comparing((Lesson lesson) -> editable(lesson)).thenComparing(lesson -> lesson.start))
+                .toList();
+        var history = topicHistory(state, today);
+        var assigned = new HashSet<String>();
+        for (var lesson : upcoming) {
+            String current = lesson.tasks.getFirst().topic();
+            boolean duplicate = !assigned.add(current);
+            if (!editable(lesson) || (!duplicate && history.priority(current) == 0)) continue;
+            var reserved = reservedTopics(state, now, Set.of(lesson.id));
+            reserved.add(current);
+            var options = history.options(reserved);
+            if (options.isEmpty()) continue;
+            String replacement = options.getFirst();
+            if (duplicate || history.priority(replacement) < history.priority(current)) {
+                lesson.tasks = LearningCatalog.day(state, date(state, lesson.start), replacement, lesson.tasks.get(1));
+                lesson.aiPlanned = false;
+                assigned.add(replacement);
+                if (!duplicate) assigned.remove(current);
+            }
+        }
+    }
+
+    PlanRequest planRequest(MentorState state, Instant now) {
+        LocalDate today = date(state, now);
+        var history = topicHistory(state, today);
+        var lessons = state.lessons.stream().filter(lesson -> editable(lesson) && !lesson.aiPlanned
+                        && !lesson.preSent && lesson.start.isAfter(now) && !date(state, lesson.start).isAfter(today.plusDays(6)))
+                .sorted(Comparator.comparing(lesson -> lesson.start)).limit(7).toList();
+        var excluded = new HashSet<Long>();
+        var slots = lessons.stream().map(lesson -> {
+            excluded.add(lesson.id);
+            return new PlanSlot(lesson.id, lesson.start, date(state, lesson.start), lesson.tasks.getFirst().topic(),
+                    lesson.tasks.get(1).prompt().split("\\. ", 2)[0]);
+        }).toList();
+        if (slots.isEmpty()) return new PlanRequest(List.of(), List.of(), List.of(), List.of());
+        var options = history.options(reservedTopics(state, now, excluded));
+        if (options.size() < slots.size()) return new PlanRequest(List.of(), List.of(), List.of(), List.of());
+        int maximumPriority = history.priority(options.get(slots.size() - 1));
+        var candidates = options.stream().filter(id -> history.priority(id) <= maximumPriority).map(id -> {
+            var skill = state.skills.get(id);
+            String status = history.mastered().contains(id) ? "знакомая тема"
+                    : skill != null ? "есть пробел, повтор с " + skill.reviewOn()
+                    : history.lastLesson().containsKey(id) ? "была назначена, зачёта нет" : "новая тема";
+            return new PlanTopic(id, LearningCatalog.topicTitle(id), status, history.lastLesson().get(id),
+                    history.priority(id) < maximumPriority);
+        }).toList();
+        var mastered = LearningCatalog.studyTopics().stream().filter(history.mastered()::contains)
+                .map(LearningCatalog::topicTitle).toList();
+        var scheduled = state.lessons.stream().filter(lesson -> !lesson.paused && !lesson.tasks.isEmpty()
+                        && lesson.end().isAfter(now) && !excluded.contains(lesson.id)
+                        && !date(state, lesson.start).isAfter(today.plusDays(6)))
+                .sorted(Comparator.comparing(lesson -> lesson.start))
+                .map(lesson -> date(state, lesson.start) + " " + lesson.tasks.getFirst().topic()).toList();
+        return new PlanRequest(slots, candidates, mastered, scheduled);
+    }
+
+    boolean applyPlan(MentorState state, Instant now, PlanRequest request, List<String> topics) {
+        if (!request.equals(planRequest(state, now)) || !request.allows(topics)) return false;
+        for (int i = 0; i < topics.size(); i++) {
+            var slot = request.slots().get(i);
+            var lesson = byId(state, slot.id());
+            lesson.tasks = LearningCatalog.day(state, slot.day(), topics.get(i), lesson.tasks.get(1));
+            lesson.aiPlanned = true;
+        }
+        return true;
+    }
+
     void resetStudy(MentorState state, LocalDate from, Instant now) {
         if (state.resetFrom != null && !from.isAfter(state.resetFrom)) return;
         state.resetFrom = from;
@@ -82,9 +221,9 @@ final class Planner {
         LocalDate today = date(state, now);
         LocalDate first = state.resetFrom != null && state.resetFrom.isAfter(today) ? state.resetFrom : today;
         long id = state.lessons.stream().mapToLong(lesson -> lesson.id).max().orElse(0);
-        int index = (int) state.lessons.stream().filter(lesson -> !lesson.paused).count();
         Set<Integer> problems = reservedAlgorithms(state, now);
-        Set<String> topics = new HashSet<>();
+        Set<String> topics = reservedTopics(state, now, Set.of());
+        var history = topicHistory(state, today);
         boolean added = false;
         for (int offset = 0; offset < 7; offset++) {
             LocalDate day = first.plusDays(offset);
@@ -93,8 +232,9 @@ final class Planner {
             lesson.id = ++id;
             lesson.start = at(state, day, DAY_START);
             lesson.flexibleEnd = at(state, day.plusDays(1), DAY_START);
-            lesson.tasks = new ArrayList<>(LearningCatalog.day(state, day, index++, problems, topics));
-            lesson.tasks.add(LearningCatalog.dailyPractice(lesson.tasks.getFirst().topic()));
+            String topic = nextTopic(history, topics);
+            topics.add(topic);
+            lesson.tasks = LearningCatalog.day(state, day, topic, LearningCatalog.nextAlgorithm(state, problems));
             state.lessons.add(lesson);
             added = true;
         }
@@ -162,7 +302,8 @@ final class Planner {
         int created = 0;
         long nextId = state.lessons.stream().mapToLong(lesson -> lesson.id).max().orElse(0);
         Set<Integer> chosen = reservedAlgorithms(state, now);
-        var topics = new java.util.HashSet<String>();
+        var topics = reservedTopics(state, now, Set.of());
+        var history = topicHistory(state, date(state, now));
         for (var entry : state.draft.entrySet()) {
             LocalDate day = entry.getKey();
             Instant start = at(state, day, entry.getValue());
@@ -172,9 +313,9 @@ final class Planner {
             Lesson lesson = new Lesson();
             lesson.id = ++nextId;
             lesson.start = start;
-            int index = Math.toIntExact(nextId - 1);
-            lesson.tasks = new ArrayList<>(LearningCatalog.day(state, day, index, chosen, topics));
-            lesson.tasks.add(LearningCatalog.dailyPractice(lesson.tasks.getFirst().topic()));
+            String topic = nextTopic(history, topics);
+            topics.add(topic);
+            lesson.tasks = LearningCatalog.day(state, day, topic, LearningCatalog.nextAlgorithm(state, chosen));
             state.lessons.add(lesson);
             created++;
         }
@@ -231,6 +372,7 @@ final class Planner {
         carryDebt(state, now);
         prepareFlexible(state, now);
         updateCurriculum(state, now);
+        repairTopics(state, now);
         refreshAlgorithms(state, now);
         refreshProjects(state, now);
         LocalDate today = date(state, now);

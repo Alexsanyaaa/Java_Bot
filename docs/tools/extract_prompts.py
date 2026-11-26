@@ -11,6 +11,7 @@ OUT = ROOT / "docs" / "08-prompts-verbatim.md"
 
 # What each prompt is for, by constant or method name.
 PURPOSE = {
+    "PLAN_RULES": "Методист на неделю: выбирает темы из каталога по датам и учебному прогрессу.",
     "CHAT_RULES": "Характер Олега — системный промпт разговора в обоих режимах. Сюда же он добавляется в пересказ вердикта (voice).",
     "DAILY_REFERENCE": "Справка дневного режима (подготовка к собесу), идёт после CHAT_RULES.",
     "SCHOOL_REFERENCE": "Справка школьного режима (Школа 21, T04B), идёт после CHAT_RULES.",

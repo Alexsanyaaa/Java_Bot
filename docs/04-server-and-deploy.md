@@ -63,6 +63,7 @@ Java — OpenJDK 21.
 | `LLM_BASE_URL`, `LLM_API_KEY` | OpenRouter |
 | `LLM_MODEL`, `LLM_FALLBACK_MODELS` | Основная модель разговора и запасные по порядку |
 | `LLM_ROUTER_MODELS`, `LLM_REVIEW_MODELS` | Классификатор и проверка (идут первыми для своих задач) |
+| `LLM_PLAN_MODELS` | Отдельный список моделей методиста. По умолчанию Gemini 3.6 Flash, Nemotron 3.5 Super VL Free, Nemotron 3 Ultra Free |
 | `GROQ_API_KEY` | Groq: модели `groq:` и распознавание голоса |
 | `GEMINI_API_KEY` | Google AI Studio: модели `gemini:` |
 | `MENTOR_PROJECT_PDF`, `MENTOR_SPRING_PDF` | Пути к PDF для `/pdf` |
