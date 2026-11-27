@@ -42,7 +42,10 @@ case "$mode" in
             printf 'Bot resuming: MemAvailable=%s MiB\n' "$((available / 1024))"
         fi
         ;;
-    check)
+    check|check-critical)
+        if [ "$mode" = check-critical ]; then
+            stop_at=$((32 * 1024))
+        fi
         if systemctl is-active --quiet "$unit"; then
             if [ "$available" -lt "$stop_at" ]; then
                 if [ "$until" -eq 0 ]; then pause "Stopping bot under memory pressure"; fi
