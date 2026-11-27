@@ -125,6 +125,27 @@ class TelegramReactionsTest {
         }
     }
 
+    /** 2026-11-27: code starting with a «//» comment got «Команды доступны в /help» instead of Oleg. */
+    @Test
+    void codeStartingWithACommentIsAMessageNotACommand() throws Exception {
+        assertThat(MentorBot.isCommand("/today")).isTrue();
+        assertThat(MentorBot.isCommand("/step 3")).isTrue();
+        assertThat(MentorBot.isCommand("/start:2:1764000000")).isTrue();
+        assertThat(MentorBot.isCommand("/submit вот код\nещё строка")).isTrue();
+        assertThat(MentorBot.isCommand("// public List<Number> copyNumbers(...)")).isFalse();
+        assertThat(MentorBot.isCommand("/* комментарий */ int x;")).isFalse();
+        assertThat(MentorBot.isCommand("/opt/java-mentor-bot не открывается")).isFalse();
+        try (var f = new Fixture()) {
+            f.output.set("Вот теперь по делу: PECS, list — producer.");
+            f.message(1, 301, "// public List<Number> copyNumbers(List<?extends Number> list){\n"
+                    + "//     return new ArrayList<>(list);\n// }\nв моем примере .add() можно делать в res. нельзя в list", Map.of());
+            f.bot.poll();
+            assertThat(f.modelCalls).isNotEmpty();
+            assertThat(f.modelCalls.getLast().path("messages").toString()).contains("copyNumbers");
+            assertThat(f.sent.getLast().path("text").asText()).isEqualTo("Вот теперь по делу: PECS, list — producer.");
+        }
+    }
+
     /** 2026-11-24: «пусть видит мои реакции и может на них реагировать». */
     @Test
     void olegSeesTheOwnersReactionsAndMayAnswerOrStaySilent() throws Exception {

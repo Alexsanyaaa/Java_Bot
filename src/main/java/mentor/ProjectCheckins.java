@@ -131,7 +131,7 @@ final class ProjectCheckins {
                         lesson.tasks.stream().filter(task -> project.id().equals(task.projectId())).forEach(task ->
                                 result.append("- ").append(Planner.time(state, lesson.start)).append(": ")
                                         .append(task.prompt()).append("; ")
-                                        .append(lesson.position > lesson.tasks.indexOf(task) ? "зачтено" : "зачёт не записан")
+                                        .append(lesson.stepDone(lesson.tasks.indexOf(task)) ? "зачтено" : "зачёт не записан")
                                         .append('\n')));
         result.append("\nОтсутствие зачёта не доказывает отсутствие работы вне бота. Репозиторий бот не проверял.");
         if (!ping.report.isBlank()) {

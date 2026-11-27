@@ -124,6 +124,13 @@ final class MentorContext {
             data.append("ТЕКУЩИЙ ШАГ, его и давай на «скинь задание»: урок #").append(open.id).append(", шаг ")
                     .append(open.position + 1).append(" из ").append(open.tasks.size()).append(" («").append(current.type())
                     .append("»): ").append(LearningCatalog.exercise(current)).append('\n');
+            var others = open.openSteps().stream().filter(index -> index != open.position)
+                    .map(index -> (index + 1) + " «" + open.tasks.get(index).type() + "»").toList();
+            if (!others.isEmpty()) {
+                data.append("Шаги урока независимы, их можно делать в любом порядке. Ещё открыты: ")
+                        .append(String.join(", ", others))
+                        .append(". Попросит другой шаг — давай его без спора; переключиться можно кнопкой или «шаг N».\n");
+            }
         }
         data.append("Подтверждённые уроки с сегодняшнего дня на семь дней вперёд:\n");
         if (week.isEmpty()) {
@@ -143,10 +150,12 @@ final class MentorContext {
                 data.append('#').append(lesson.id).append(" · ").append(Planner.date(state, lesson.start))
                         .append(" · ").append(lesson.accepted).append('/').append(lesson.tasks.size())
                         .append(lesson.selfChecked == 0 ? "" : " (самопроверка: " + lesson.selfChecked + ")").append(": ");
-                for (int i = 0; i < Math.min(lesson.position, lesson.tasks.size()); i++) {
-                    Task task = lesson.tasks.get(i);
-                    if (i > 0) data.append("; ");
-                    data.append(shortTask(task));
+                boolean first = true;
+                for (int i = 0; i < lesson.tasks.size(); i++) {
+                    if (!lesson.stepDone(i)) continue;
+                    if (!first) data.append("; ");
+                    data.append(shortTask(lesson.tasks.get(i)));
+                    first = false;
                 }
                 data.append('\n');
             }
@@ -224,7 +233,7 @@ final class MentorContext {
                 data.append(" · шаг закрытого проекта\n");
                 continue;
             }
-            if (index < lesson.position) {
+            if (lesson.stepDone(index)) {
                 data.append(" · зачтено");
             } else if ((lesson.started || lesson.flexibleEnd != null && !lesson.start.isAfter(now))
                     && index == lesson.position && lesson.end().isAfter(now)) {

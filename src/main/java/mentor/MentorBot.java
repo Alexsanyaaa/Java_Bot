@@ -56,6 +56,7 @@ final class MentorBot {
             /zone Europe/Moscow — часовой пояс до первого плана
             /week — предложить план на семь дней, /confirm — сохранить
             /today — ближайшее или текущее занятие
+            /step 3 — перейти к шагу 3 (шаги можно делать в любом порядке; можно просто написать «шаг 3»)
             /lesson [ID] — подготовленный урок: ссылки, что изучить, задания
             /materials — материалы ближайшего урока и дополнительные источники
             /progress текст — ответ на проверку хода Java-проекта (можно позже)
@@ -78,7 +79,8 @@ final class MentorBot {
             """;
 
     record Reply(String text, Button... buttons) {}
-    private record Pending(long lessonId, int position, List<Task> tasks, MentorState.Attempt attempt,
+    /** A submission waiting for review: the lesson's open steps (0-based, the focus step first) and their tasks. */
+    private record Pending(long lessonId, List<Integer> steps, List<Task> tasks, MentorState.Attempt attempt,
                            String context, List<String> earlierSubmissions, String mentorContext) {}
 
     private final java.util.concurrent.atomic.AtomicBoolean reviewing = new java.util.concurrent.atomic.AtomicBoolean();
@@ -325,8 +327,9 @@ final class MentorBot {
         Pending pending = store.read(state -> state.lessons.stream().filter(lesson -> lesson.pending != null)
                 .filter(lesson -> lesson.currentTask() != null)
                 .min(Comparator.comparing(lesson -> lesson.pending.submittedAt())).map(lesson -> {
-                    var tasks = List.copyOf(lesson.tasks.subList(lesson.position, lesson.tasks.size()));
-                    return new Pending(lesson.id, lesson.position, tasks, lesson.pending,
+                    var steps = List.copyOf(lesson.openSteps());
+                    var tasks = steps.stream().map(lesson.tasks::get).toList();
+                    return new Pending(lesson.id, steps, tasks, lesson.pending,
                             tasks.stream().map(task -> projectContext(state, task)).filter(context -> !context.isBlank())
                                     .distinct().collect(Collectors.joining("\n")),
                             DayMemory.earlierSubmissions(state, lesson.id, lesson.pending),
@@ -336,25 +339,25 @@ final class MentorBot {
             return false;
         }
         try {
-            var results = model.reviewLesson(pending.position() + 1, pending.tasks(), pending.context(),
+            var numbers = pending.steps().stream().map(index -> index + 1).toList();
+            var results = model.reviewLesson(numbers, pending.tasks(), pending.context(),
                     pending.earlierSubmissions(), pending.mentorContext(), pending.attempt().text());
             // Oleg retells what will be shown; the verdicts themselves stay the reviewer's.
             var said = new java.util.HashMap<Integer, String>();
             for (var result : results) {
-                boolean accepted = result.status().equals("accepted");
-                int index = result.step() - 1 - pending.position();
-                if (!accepted && !result.status().equals("revise") || index < 0 || index >= pending.tasks().size()) break;
-                said.put(result.step(), voiced(accepted, LearningCatalog.exercise(pending.tasks().get(index)),
+                if (result.status().equals("missing")) continue;
+                said.put(result.step(), voiced(result.status().equals("accepted"),
+                        LearningCatalog.exercise(pending.tasks().get(numbers.indexOf(result.step()))),
                         pending.attempt().text(), result.feedback()));
-                if (!accepted) break;
             }
             return store.write(state -> {
                 Lesson lesson = Planner.byId(state, pending.lessonId());
-                if (lesson == null || lesson.position != pending.position() || !pending.attempt().equals(lesson.pending)
-                        || !lesson.tasks.subList(lesson.position, lesson.tasks.size()).equals(pending.tasks())) {
+                if (lesson == null || !pending.attempt().equals(lesson.pending)
+                        || !pending.steps().stream().map(lesson.tasks::get).toList().equals(pending.tasks())) {
                     return false;
                 }
-                if (quietMissing && !results.isEmpty() && results.getFirst().status().equals("missing")) {
+                boolean nothing = results.stream().allMatch(result -> result.status().equals("missing"));
+                if (quietMissing && nothing) {
                     lesson.pending = null;
                     // Not an answer after all: the chat reply will record the message once, as conversation.
                     state.conversation.removeIf(item -> Long.valueOf(lesson.id).equals(item.submissionLesson())
@@ -362,26 +365,37 @@ final class MentorBot {
                     return true;
                 }
                 Instant reviewedAt = clock.instant();
+                int focus = lesson.position;
                 var feedback = new java.util.StringJoiner("\n\n");
+                boolean revised = false;
                 for (var result : results) {
-                    Task reviewedTask = pending.tasks().get(result.step() - 1 - pending.position());
-                    if (!reviewedTask.equals(lesson.currentTask())) break;
+                    int index = result.step() - 1;
+                    if (lesson.stepDone(index) || result.status().equals("missing")) continue;
+                    Task reviewedTask = lesson.tasks.get(index);
+                    lesson.position = index; // accept() and recordSkill() work on the step in focus
                     if (result.status().equals("accepted")) {
                         feedback.add("Засчитано. Шаг " + result.step() + " из " + lesson.tasks.size()
                                 + " («" + reviewedTask.type() + "»): " + said.getOrDefault(result.step(), result.feedback()));
+                        lesson.pending = pending.attempt(); // accept() clears it; more steps may follow
                         accept(state, lesson, reviewedAt, true);
                     } else {
-                        if (result.status().equals("revise")) {
-                            feedback.add("Нужна доработка. Шаг " + result.step() + ": " + said.getOrDefault(result.step(), result.feedback()));
-                            recordSkill(state, lesson, false, reviewedAt);
-                        } else if (feedback.length() == 0) {
-                            feedback.add("Пока нет ответа на шаг " + result.step() + " («" + reviewedTask.type() + "»).");
-                        }
-                        if (lesson.position == pending.position()) lesson.lastAttempt = pending.attempt().text();
-                        break;
+                        feedback.add("Нужна доработка. Шаг " + result.step() + ": " + said.getOrDefault(result.step(), result.feedback()));
+                        recordSkill(state, lesson, false, reviewedAt);
+                        lesson.lastAttempt = pending.attempt().text();
+                        revised = true;
+                        focus = index; // stay on the step that needs work
                     }
                 }
+                if (feedback.length() == 0) {
+                    Task focusTask = focus < lesson.tasks.size() ? lesson.tasks.get(focus) : null;
+                    feedback.add(focusTask == null ? "В этой сдаче не нашёл ответа ни на один открытый шаг."
+                            : "Пока нет ответа на шаг " + (focus + 1) + " («" + focusTask.type() + "»).");
+                    lesson.lastAttempt = pending.attempt().text();
+                }
                 lesson.pending = null;
+                // Focus: the step that needs work, else the one that was in focus if still open, else the next open one.
+                lesson.position = revised || focus < lesson.tasks.size() && !lesson.stepDone(focus)
+                        ? focus : lesson.nextOpen(focus);
                 String status = "Урок #" + lesson.id + ": " + MentorContext.progress(lesson).toLowerCase(Locale.ROOT) + ".";
                 String reply = feedback + "\n\n" + status + "\n\n" + (lesson.end().isAfter(reviewedAt) || lesson.currentTask() == null
                         ? taskText(lesson) : "Учебное окно завершилось. Следующее занятие — /today.");
@@ -538,13 +552,16 @@ final class MentorBot {
                 default -> input;
             };
             String lower = input.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("я закончил раздел про ")) {
+            var stepWish = STEP_WISH.matcher(lower.strip());
+            if (stepWish.matches()) {
+                input = "/step " + (stepWish.group(1) != null ? stepWish.group(1) : stepWish.group(2));
+            } else if (lower.startsWith("я закончил раздел про ")) {
                 input = "/known " + input.substring("я закончил раздел про ".length()).strip();
             } else if (lower.startsWith("запиши результат по проекту:")) {
                 input = "/progress " + input.substring("запиши результат по проекту:".length()).strip();
             }
             var reply = message.path("reply_to_message");
-            if (!input.startsWith("/") && reply.path("from").path("is_bot").asBoolean()) {
+            if (!isCommand(input) && reply.path("from").path("is_bot").asBoolean()) {
                 String prompt = reply.path("text").asText();
                 if (prompt.startsWith("Ответ на задание #")) {
                     String expected = store.read(state -> {
@@ -562,7 +579,7 @@ final class MentorBot {
                     input = "/progress " + input;
                 }
             }
-            if (!input.startsWith("/")) {
+            if (!isCommand(input)) {
                 var direct = DIRECT_SUBMISSION.matcher(input.strip());
                 if (direct.matches() && store.read(state -> submittingLesson(state, received) != null
                         && state.interviewTopic.isBlank())) {
@@ -579,7 +596,8 @@ final class MentorBot {
             return;
         }
         String[] parts = input.strip().split("(?U)\\s+", 2);
-        String command = parts[0].toLowerCase(Locale.ROOT);
+        // Only a real Telegram command is a command: code that starts with «//» or a path like «/opt/…» is a message.
+        String command = clicked || isCommand(input) ? parts[0].toLowerCase(Locale.ROOT) : "";
         String args = parts.length > 1 ? parts[1].strip() : "";
         store.write(state -> {
             state.ownerChat = chat;
@@ -768,6 +786,10 @@ final class MentorBot {
                 state.schoolMode = false;
                 yield today(state, now);
             }
+            case "/step" -> {
+                state.schoolMode = false;
+                yield switchStep(state, args, now);
+            }
             case "/school" -> {
                 state.schoolMode = true;
                 state.schoolModeDay = Planner.date(state, now);
@@ -822,9 +844,53 @@ final class MentorBot {
         return StudyMaterials.forTopic(topic) + (video == null ? "" : "\n\n" + video);
     }
 
+    private static final Pattern COMMAND = Pattern.compile("/[A-Za-z][A-Za-z0-9_]*(?:@\\w+)?(?:[\\s:].*)?", Pattern.DOTALL);
+
+    /**
+     * 2026-11-27: Java code starting with a «//» comment was taken for an unknown command and answered with
+     * «Команды доступны в /help» three times in a row. A command is «/» plus a Latin word, then a space or the end.
+     */
+    static boolean isCommand(String text) {
+        return COMMAND.matcher(text.strip()).matches();
+    }
+
+    /** «шаг 3», «давай шаг 3», «перейду на 3 шаг», «го к шагу 4» — the wish to switch to another step. */
+    static final Pattern STEP_WISH = Pattern.compile(
+            "(?u)(?:(?:давай|го|хочу|перейду|перейди|переключи|переключись|можно|сначала|сделаю)\\s+)?(?:на\\s+|к\\s+)?"
+                    + "(?:шаг[ау]?\\s*([1-9])|([1-9])\\s*(?:-?й\\s+)?шаг[ау]?)\\s*[.!?]*");
+
     private static Button[] taskButtons(Lesson lesson) {
-        return lesson.currentTask() != null && lesson.pending == null
-                ? new Button[]{new Button("Ответить на задание", "answer")} : new Button[0];
+        if (lesson.currentTask() == null || lesson.pending != null) return new Button[0];
+        var buttons = new java.util.ArrayList<Button>();
+        buttons.add(new Button("Ответить на задание", "answer"));
+        for (int index : lesson.openSteps()) {
+            if (index != lesson.position) buttons.add(new Button("→ Шаг " + (index + 1), "step " + (index + 1)));
+        }
+        return buttons.toArray(Button[]::new);
+    }
+
+    /** Steps are independent (2026-11-24): any open step can be taken next. */
+    private Reply switchStep(MentorState state, String args, Instant now) {
+        Lesson lesson = submittingLesson(state, now);
+        if (lesson == null) lesson = Planner.active(state, now);
+        if (lesson == null || lesson.currentTask() == null) return new Reply("Сейчас нет открытого урока. Проверь /today.");
+        if (!args.strip().matches("[1-9]")) return new Reply("Формат: /step 3 — номер шага урока.");
+        int index = Integer.parseInt(args.strip()) - 1;
+        if (index >= lesson.tasks.size()) return new Reply("В уроке #" + lesson.id + " всего " + lesson.tasks.size() + " шага.");
+        if (lesson.stepDone(index)) {
+            return new Reply("Шаг " + (index + 1) + " уже зачтён. Открытые: " + openList(lesson) + ".", taskButtons(lesson));
+        }
+        if (lesson.pending != null) return new Reply("Сначала дождись проверки текущей сдачи — это пара минут.");
+        lesson.position = index;
+        lesson.started = true;
+        lesson.hints = 0;
+        lesson.lastAttempt = "";
+        return new Reply("Урок #" + lesson.id + " · " + Planner.label(state, lesson) + "\n\n" + taskText(lesson), taskButtons(lesson));
+    }
+
+    static String openList(Lesson lesson) {
+        return lesson.openSteps().stream().map(index -> (index + 1) + " «" + lesson.tasks.get(index).type() + "»")
+                .collect(Collectors.joining(", "));
     }
 
     private static String answerPrompt(Lesson lesson) {
@@ -1378,7 +1444,7 @@ final class MentorBot {
             try {
                 intent = replyToRecall ? MentorModel.Intent.RECALL : model.route(
                         submissionLesson == null ? List.of()
-                                : List.copyOf(submissionLesson.tasks.subList(submissionLesson.position, submissionLesson.tasks.size())),
+                                : submissionLesson.openSteps().stream().map(submissionLesson.tasks::get).toList(),
                         recallQuestion, DayMemory.lastMentorMessage(snapshot, now), message);
             } catch (IOException failure) {
                 routerFailed = true;
@@ -1387,8 +1453,8 @@ final class MentorBot {
             if (intent == MentorModel.Intent.ANSWER) {
                 String changed = store.write(state -> {
                     Lesson current = submittingLesson(state, received);
-                    if (current == null || current.id != submissionLesson.id || current.position != submissionLesson.position) {
-                        return "Пока я читал сообщение, шаг сменился. Открой «Урок», там актуальный статус.";
+                    if (current == null || current.id != submissionLesson.id) {
+                        return "Пока я читал сообщение, урок сменился. Открой «Урок», там актуальный статус.";
                     }
                     current.started = true;
                     String receipt = queueSubmission(state, current, message, received);
@@ -1808,8 +1874,10 @@ final class MentorBot {
         var day = Planner.date(state, lesson.start);
         if (Boolean.TRUE.equals(state.evaluatedDays.get(day))) state.evaluatedDays.put(day, false);
         lesson.pending = null;
-        lesson.position++;
-        lesson.accepted++;
+        lesson.syncSteps();
+        if (!lesson.done.contains(lesson.position)) lesson.done.add(lesson.position);
+        lesson.accepted = lesson.done.size();
+        lesson.position = lesson.nextOpen(lesson.position + 1);
         state.stepsByDay.merge(Planner.date(state, now), 1, Integer::sum);
         state.stepsByDay.keySet().removeIf(old -> old.isBefore(Planner.date(state, now).minusDays(400)));
         lesson.hints = 0;
@@ -2058,9 +2126,13 @@ final class MentorBot {
         if (lesson.pending != null) {
             return "Текущая попытка ожидает проверки. Если проверка недоступна, можно пройти /selfcheck.";
         }
+        var others = lesson.openSteps().stream().filter(index -> index != lesson.position)
+                .map(index -> (index + 1) + " «" + lesson.tasks.get(index).type() + "»").toList();
         return task.type() + " · " + task.minutes() + " мин · шаг " + (lesson.position + 1) + " из " + lesson.tasks.size()
                 + "\n" + LearningCatalog.card(task)
-                + "\n\nОтвет просто пиши сюда — я сам пойму, что это сдача.";
+                + "\n\nОтвет просто пиши сюда — я сам пойму, что это сдача."
+                + (others.isEmpty() ? "" : "\nШаги можно делать в любом порядке. Ещё открыты: " + String.join(", ", others)
+                        + " — кнопка ниже или «шаг N».");
     }
 
     private static String draftText(MentorState state) {

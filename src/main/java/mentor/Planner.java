@@ -82,7 +82,7 @@ final class Planner {
             var day = date(state, lesson.start);
             String topic = lesson.tasks.getFirst().topic();
             if (day.isBefore(today)) lastLesson.merge(topic, day, (left, right) -> left.isAfter(right) ? left : right);
-            if (lesson.position > 0 && lesson.tasks.getFirst().type().equals("Теория")) mastered.add(topic);
+            if (lesson.stepDone(0) && lesson.tasks.getFirst().type().equals("Теория")) mastered.add(topic);
         }
         return new TopicHistory(mastered, lastLesson);
     }
@@ -332,7 +332,7 @@ final class Planner {
     void refreshProjects(MentorState state, Instant now) {
         state.lessons.stream().filter(lesson -> !lesson.paused && lesson.end().isAfter(now)).forEach(lesson -> {
             int last = lesson.tasks.size() - 1;
-            if (lesson.position > last || lesson.position == last && (lesson.started || lesson.pending != null)) return;
+            if (lesson.stepDone(last) || lesson.position == last && (lesson.started || lesson.pending != null)) return;
             lesson.tasks.set(last, LearningCatalog.dailyPractice(lesson.tasks.getFirst().topic()));
         });
     }

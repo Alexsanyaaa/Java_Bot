@@ -157,7 +157,44 @@ final class MentorState {
             return flexibleEnd == null ? start.plusSeconds(7_200) : flexibleEnd;
         }
 
+        /**
+         * Accepted steps (0-based). Since 2026-11-24 steps can be done in any order; {@link #position} is only the step
+         * in focus (the one shown and expected next), and {@link #accepted} is the count of done steps.
+         */
+        public List<Integer> done = new ArrayList<>();
+
+        /** Lessons saved before 2026-11-24 were sequential: their first {@code accepted} steps are the done ones. */
+        void syncSteps() {
+            for (int i = 0; i < tasks.size() && done.size() < accepted; i++) if (!done.contains(i)) done.add(i);
+            accepted = Math.max(accepted, done.size());
+            if (position < tasks.size() && done.contains(position)) position = nextOpen(position);
+        }
+
+        boolean stepDone(int index) {
+            syncSteps();
+            return done.contains(index);
+        }
+
+        /** The first open step at or after {@code from} (wrapping around), or tasks.size() when all are done. */
+        int nextOpen(int from) {
+            for (int k = 0; k < tasks.size(); k++) {
+                int index = Math.floorMod(from + k, tasks.size());
+                if (!done.contains(index)) return index;
+            }
+            return tasks.size();
+        }
+
+        /** Open steps, the one in focus first. */
+        List<Integer> openSteps() {
+            syncSteps();
+            var open = new ArrayList<Integer>();
+            if (position < tasks.size()) open.add(position);
+            for (int i = 0; i < tasks.size(); i++) if (i != position && !done.contains(i)) open.add(i);
+            return open;
+        }
+
         Task currentTask() {
+            syncSteps();
             return position < tasks.size() ? tasks.get(position) : null;
         }
     }
