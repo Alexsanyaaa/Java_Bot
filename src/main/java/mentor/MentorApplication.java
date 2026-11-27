@@ -7,8 +7,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Plain Java start-up (no Spring since 2026-11-27): builds the objects by hand and runs the four schedules on
@@ -76,12 +78,25 @@ public final class MentorApplication {
             var store = new StateStore(db, json);
             String payload = store.payload();
             MentorState state = json.readValue(payload, MentorState.class);
-            String again = json.writeValueAsString(state);
-            if (!again.equals(payload)) {
-                int at = 0;
-                while (at < Math.min(again.length(), payload.length()) && again.charAt(at) == payload.charAt(at)) at++;
-                System.out.println("ОШИБКА: состояние после чтения и записи отличается с символа " + at + ": …"
-                        + payload.substring(Math.max(0, at - 60), Math.min(payload.length(), at + 60)) + "…");
+            JsonNode original = json.readTree(payload);
+            JsonNode restored = json.readTree(json.writeValueAsString(state));
+            // Sequential lessons are read with an empty done list. Its indices are reconstructed from
+            // accepted by syncSteps() the first time the lesson is used.
+            for (int i = 0; i < state.lessons.size(); i++) {
+                JsonNode before = original.path("lessons").path(i);
+                JsonNode after = restored.path("lessons").path(i);
+                if (after instanceof ObjectNode lesson) {
+                    if (!before.has("done") && lesson.path("done").isArray() && lesson.path("done").isEmpty()) {
+                        lesson.remove("done");
+                    }
+                    if (!before.has("aiPlanned") && lesson.path("aiPlanned").isBoolean()
+                            && !lesson.path("aiPlanned").asBoolean()) {
+                        lesson.remove("aiPlanned");
+                    }
+                }
+            }
+            if (!original.equals(restored)) {
+                System.out.println("ОШИБКА: при чтении и записи изменились сохранённые данные.");
                 return 1;
             }
             System.out.println("OK: состояние читается без потерь (" + payload.length() + " символов, уроков: "
@@ -99,7 +114,8 @@ public final class MentorApplication {
             System.out.println("OK: /today — " + today.length() + " символов, запрос плана — " + plan.length() + " символов");
             if (!net.isBlank()) {
                 var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(8)).build();
-                var response = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(net)).GET().build(),
+                var response = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(net))
+                                .timeout(java.time.Duration.ofSeconds(15)).GET().build(),
                         java.net.http.HttpResponse.BodyHandlers.discarding());
                 System.out.println("OK: HTTPS " + net + " → " + response.statusCode());
             }

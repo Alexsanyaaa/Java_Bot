@@ -119,7 +119,8 @@ MENTOR_DB_URL=jdbc:h2:file:/tmp/mentor-check/mentor \
   -jar build/libs/java-mentor-bot.jar --check --net
 ```
 
-Должны появиться три строки `OK:` (состояние, `/today`, `HTTPS https://api.telegram.org → 302`).
+Должны появиться три строки `OK:` (состояние, `/today`, HTTPS). Код ответа Telegram может отличаться:
+для этой проверки важен успешный TLS-запрос. Уроки старого формата без поля `done` тоже должны пройти проверку.
 В папке `src/main/resources/META-INF/native-image/mentor/java-mentor-bot/` появятся файлы `*-config.json`
 или `reachability-metadata.json`:
 
@@ -205,7 +206,7 @@ ssh root@<IP-сервера> 'set -e
   install -o root -g root -m 755 /tmp/java-mentor-bot.native.new /opt/java-mentor-bot/java-mentor-bot-native.new
   d=$(mktemp -d); cp "$(ls -t /var/lib/java-mentor-bot/data/*.bak | head -1)" $d/mentor.mv.db
   systemd-run --scope -q -p MemoryMax=96M env MENTOR_DB_URL=jdbc:h2:file:$d/mentor \
-      /opt/java-mentor-bot/java-mentor-bot-native.new --check --net
+      /opt/java-mentor-bot/java-mentor-bot-native.new -Xmx64m --check --net
   rm -rf $d'
 
 # b) замена: stop → бэкап базы → программа + профиль → start
@@ -220,9 +221,10 @@ ssh root@<IP-сервера> 'set -e; ts=$(date -u +%Y%m%dT%H%M%SZ)
   systemctl start java-mentor-bot'
 ```
 
-Профиль [`80-native.conf`](../deploy/systemd/80-native.conf) только подменяет `ExecStart`. Сторож памяти,
-лимиты 176/192 МБ и `EnvironmentFile` остаются прежними. JAR тоже остаётся на месте, поэтому откат —
-одна команда:
+Профиль [`80-native.conf`](../deploy/systemd/80-native.conf) подменяет `ExecStart`. Сторож памяти,
+лимиты 176/192 МБ и `EnvironmentFile` берутся из действующей настройки сервера.
+Перед переключением оставь на сервере проверенный JAR той же версии, что и native. Он должен читать
+список зачтённых шагов `done`, чтобы откат сохранил результаты заданий, выполненных в любом порядке:
 
 ```sh
 ssh root@<IP-сервера> 'systemctl stop java-mentor-bot; rm /etc/systemd/system/java-mentor-bot.service.d/80-native.conf
