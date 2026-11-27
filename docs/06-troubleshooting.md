@@ -109,7 +109,7 @@ journalctl -u java-mentor-bot --since "-1h" --no-pager | grep -E "\[(chat|router
 
 ### После выкладки бот не стартует
 
-1. Нет `Started MentorApplication`, есть `Exception` при старте → чаще всего не читается состояние: в
+1. Нет `Наставник запущен` (до 27.11 — `Started MentorApplication`), есть `Exception` при старте → чаще всего не читается состояние: в
    `MentorState` переименовали или удалили поле, у нового нет значения по умолчанию. **Откат**
    ([04-server-and-deploy.md](04-server-and-deploy.md#откат)), потом чинить локально на копии базы
    (`ProductionCopyDryRunTest`).

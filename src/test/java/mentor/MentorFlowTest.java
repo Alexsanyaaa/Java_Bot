@@ -16,8 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -99,8 +97,8 @@ class MentorFlowTest {
         server.start();
         try {
             var clock = new AdjustableClock(MONDAY);
-            var jdbc = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
-                    + ";DB_CLOSE_DELAY=-1", "sa", ""));
+            var jdbc = new Database("jdbc:h2:mem:" + UUID.randomUUID()
+                    + ";DB_CLOSE_DELAY=-1", "sa", "");
             var store = new StateStore(jdbc, json);
             var planner = new Planner();
             String base = "http://localhost:" + server.getAddress().getPort();
@@ -137,7 +135,7 @@ class MentorFlowTest {
             restarted.poll();
             assertThat(sent).hasSize(4);
 
-            org.springframework.test.util.ReflectionTestUtils.setField(model, "fallbackModels", "reserve-model");
+            TestFields.set(model, "fallbackModels", "reserve-model");
             failNextModel.set(true);
             updates.add(message(6, 123, "Можно подробнее про урок #1?"));
             restarted.poll();
@@ -219,7 +217,7 @@ class MentorFlowTest {
             assertThat(sent.get(sent.size() - 2).path("reply_markup").path("keyboard").size()).isEqualTo(3);
             assertThat(sent.getLast().path("text").asText()).contains("Вопрос 1 из 5");
 
-            org.springframework.test.util.ReflectionTestUtils.setField(model, "transcriptionModel", "test-stt");
+            TestFields.set(model, "transcriptionModel", "test-stt");
             updates.add(Map.of("update_id", 17L, "message", Map.of("from", Map.of("id", 123), "chat", chat(123),
                     "voice", Map.of("duration", 5, "file_size", 10, "file_id", "sample"))));
             restarted.poll();

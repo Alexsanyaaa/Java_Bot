@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Gemini gets its key both as Bearer (the OpenAI-compatible endpoint requires it) and as x-goog-api-key. */
@@ -36,8 +35,8 @@ class GeminiAuthTest {
         try {
             String base = "http://localhost:" + server.getAddress().getPort();
             var model = new MentorModel(json, base + "/openrouter", "gemini:gemini-flash-latest", "openrouter-key");
-            ReflectionTestUtils.setField(model, "geminiKey", "AQ.test-key");
-            ReflectionTestUtils.setField(model, "geminiBase", base + "/gemini");
+            TestFields.set(model, "geminiKey", "AQ.test-key");
+            TestFields.set(model, "geminiBase", base + "/gemini");
             var reply = model.talk("ты все лимиты сожрал", List.of(), "заметки", "", false);
             assertThat(reply.answer()).contains("Жрал");
             assertThat(googleKey.get()).isEqualTo("AQ.test-key");

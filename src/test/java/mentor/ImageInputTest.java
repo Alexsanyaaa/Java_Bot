@@ -7,8 +7,6 @@ import java.time.Clock;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -79,7 +77,7 @@ class ImageInputTest {
                 field.setAccessible(true);
                 field.set(model,value.getValue());
             }
-            var jdbc=new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";DB_CLOSE_DELAY=-1","sa",""));
+            var jdbc=new Database("jdbc:h2:mem:"+UUID.randomUUID()+";DB_CLOSE_DELAY=-1","sa","");
             var store=new StateStore(jdbc,json);
             var bot=new MentorBot(store,new Planner(),new TelegramApi(json,base+"/telegram","fake",123),model,Clock.systemUTC(),"","","");
             var media=List.of(Map.of("file_id","picture","file_size",png.length,"width",800,"height",400));

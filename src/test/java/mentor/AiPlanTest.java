@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
 
 class AiPlanTest {
@@ -86,8 +85,8 @@ class AiPlanTest {
         try {
             String base = "http://127.0.0.1:" + server.getAddress().getPort();
             var model = new MentorModel(json, base, "", "fake-openrouter");
-            ReflectionTestUtils.setField(model, "geminiBase", base);
-            ReflectionTestUtils.setField(model, "geminiKey", "fake-gemini");
+            TestFields.set(model, "geminiBase", base);
+            TestFields.set(model, "geminiKey", "fake-gemini");
             var topics = model.plan(request);
             assertThat(calls).containsExactly("gemini-3.6-flash", "nvidia/nemotron-3.5-super-vl:free");
             assertThat(topics).isEqualTo(choices);
@@ -122,7 +121,7 @@ class AiPlanTest {
         assertThat(request.slots()).hasSize(6);
         var model = new MentorModel(JsonMapper.builder().build(), System.getenv("LLM_BASE_URL"), "",
                 System.getenv().getOrDefault("LLM_API_KEY", ""));
-        ReflectionTestUtils.setField(model, "geminiKey", System.getenv().getOrDefault("GEMINI_API_KEY", ""));
+        TestFields.set(model, "geminiKey", System.getenv().getOrDefault("GEMINI_API_KEY", ""));
         var topics = model.plan(request);
         assertThat(planner.applyPlan(state, NOV_26, request, topics)).isTrue();
         System.out.println("Темы: " + topics);

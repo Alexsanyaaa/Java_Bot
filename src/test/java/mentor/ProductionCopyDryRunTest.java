@@ -10,8 +10,6 @@ import java.time.ZoneOffset;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -23,8 +21,8 @@ class ProductionCopyDryRunTest {
     @Test
     void newVersionKeepsProgressOfTheProductionCopy() throws Exception {
         var json = JsonMapper.builder().build();
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
-                "jdbc:h2:file:" + System.getenv("MENTOR_DRYRUN_DB"), "sa", ""));
+        var jdbc = new Database(
+                "jdbc:h2:file:" + System.getenv("MENTOR_DRYRUN_DB"), "sa", "");
         var store = new StateStore(jdbc, json);
         var planner = new Planner();
         Instant now = Instant.now();

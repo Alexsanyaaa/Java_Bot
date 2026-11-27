@@ -10,12 +10,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-@Component
 final class TelegramApi {
     record Button(String text, String callback_data) {}
 
@@ -29,8 +26,7 @@ final class TelegramApi {
     private final boolean enabled;
     final long ownerId;
 
-    TelegramApi(ObjectMapper json, @Value("${mentor.telegram.api-base}") String base,
-                @Value("${mentor.telegram.token}") String token, @Value("${mentor.telegram.owner-id}") long ownerId) {
+    TelegramApi(ObjectMapper json, String base, String token, long ownerId) {
         if (!token.isBlank() && ownerId <= 0) {
             throw new IllegalArgumentException("Укажи TELEGRAM_OWNER_ID, чтобы бот отвечал только владельцу");
         }

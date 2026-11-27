@@ -14,8 +14,6 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -120,8 +118,8 @@ class IndependentStepsTest {
             });
             server.start();
             String base = "http://localhost:" + server.getAddress().getPort();
-            store = new StateStore(new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
-                    + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+            store = new StateStore(new Database("jdbc:h2:mem:" + UUID.randomUUID()
+                    + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
             var planner = new Planner();
             store.write(state -> {
                 planner.resetStudy(state, DAY, EVENING);

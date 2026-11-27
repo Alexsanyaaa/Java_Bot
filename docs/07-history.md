@@ -19,6 +19,13 @@
 
 ## 2026-11-27
 
+- **Spring убран.** Spring Boot только собирал объекты, читал `application.properties`, запускал `@Scheduled`
+  и давал JdbcTemplate с пулом Hikari, но его классы занимали десятки МБ metaspace. Теперь это делает
+  `MentorApplication.main`: `Env` (те же имена переменных), `Database` (одно соединение), `ScheduledExecutorService`
+  на 3 потоках, хук остановки, логи через slf4j-simple. Локально в простое на копии боевой базы: committed
+  ~95 → ~56 МБ, private ~105 → ~62 МБ, старт 3,3 → 1,1 с; JAR 17,4 → 5,6 МБ. JSON состояния побайтно тот же
+  (`--check` на копии: чтение → запись без изменений). Добавлена сборка native image (GraalVM, только на Linux,
+  на втором компьютере с Mint) — [09-native-image.md](09-native-image.md).
 - **Память.** Замер на сервере: ~110 МБ anon — классы Spring/Jackson/H2 (metaspace) ~33 МБ, куча ~28 МБ,
   память вне Java ~35–40 МБ, code cache ~7 МБ. Добавлены `MALLOC_ARENA_MAX=2` (в `60-jvm-budget.conf`)
   и `CACHE_SIZE=2048` для H2. AppCDS дал локально −9 МБ и старт 1 с вместо 7, но на сервере обучающий запуск

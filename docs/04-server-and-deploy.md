@@ -50,7 +50,8 @@ Java — OpenJDK 21.
 - Таймер каждые 5 с запускает `mentor-memory-guard check`: если `MemAvailable < 192 МиБ`, бот
   останавливается, после паузы 300 с и при ≥ 320 МиБ запускается снова.
 
-Обычно бот занимает ~100–110 МБ (`anon` в `memory.stat`).
+Со Spring бот занимал ~100–110 МБ (`anon` в `memory.stat`). Без Spring (с 27.11) локальный замер в простое —
+~62 МБ вместо ~105 МБ. Native image (если выложен) — см. [09-native-image.md](09-native-image.md).
 
 С 27.11 профиль ещё задаёт `MALLOC_ARENA_MAX=2` (меньше арен glibc malloc), а адрес базы по умолчанию —
 `CACHE_SIZE=2048` (кэш H2 2 МБ вместо 16). AppCDS (архив классов) пробовали и откатили: сохранение
@@ -58,7 +59,7 @@ Java — OpenJDK 21.
 ~10 МБ — значит отнимать память у ВКР и VPN.
 
 Отдельный профиль [`60-jvm-budget.conf`](../deploy/systemd/60-jvm-budget.conf) выделяет JVM до 64 МиБ кучи
-и оставляет Hikari от одного до двух соединений. Он предназначен для установки рядом с `50-memory-guard.conf`
+(до 27.11 он ещё ограничивал пул Hikari — его больше нет). Он предназначен для установки рядом с `50-memory-guard.conf`
 в `/etc/systemd/system/java-mentor-bot.service.d/`. На локальной копии рабочей базы профиль уменьшил пиковый
 PSS процесса примерно на 17 МиБ при серии из 18 сообщений, включая три скриншота по 2 МиБ и одно голосовое.
 Пороги запуска и остановки задаёт скрипт `mentor-memory-guard`. Ограничения cgroup задаёт
@@ -139,12 +140,13 @@ ssh root@<IP-сервера> 'set -e; ts=$(date -u +%Y%m%dT%H%M%SZ)
   systemctl start java-mentor-bot'
 
 # 4. Проверка после
-ssh root@<IP-сервера> 'sleep 20; journalctl -u java-mentor-bot --since "-2min" --no-pager | grep -E "Started MentorApplication|ERROR|Exception";
+ssh root@<IP-сервера> 'sleep 20; journalctl -u java-mentor-bot --since "-2min" --no-pager | grep -E "Наставник запущен|WARN|ERROR|Exception";
   systemctl show java-mentor-bot -p ActiveState -p NRestarts;
   grep -E "^anon " /sys/fs/cgroup/system.slice/java-mentor-bot.service/memory.stat; free -m | sed -n 2p'
 ```
 
-Должно быть: `Started MentorApplication`, `ActiveState=active`, `NRestarts=0`, `anon` около 100–110 МБ.
+Должно быть: `Наставник запущен`, `ActiveState=active`, `NRestarts=0`, `anon` около 60–75 МБ (со Spring было 100–110).
+До выкладки новую сборку можно проверить на копии бэкапа: `MENTOR_DB_URL=jdbc:h2:file:/tmp/x/mentor java -jar … --check --net`.
 
 Если старт не происходит — скорее всего, сторож памяти не пускает (меньше 320 МиБ свободно):
 `journalctl -u mentor-memory-guard -u java-mentor-bot --since "-10min"`. Не освобождай память, останавливая

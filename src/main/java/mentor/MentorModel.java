@@ -12,12 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-@Component
 final class MentorModel {
     record Review(boolean accepted, String feedback) {}
     record LessonReview(int step, String status, String feedback) {}
@@ -38,9 +35,7 @@ final class MentorModel {
     private static final String CODE_REVIEWER = "groq:openai/gpt-oss-120b";
     /** Google AI Studio's free tier through its OpenAI-compatible endpoint, e.g. gemini:gemini-2.5-flash. */
     private static final String GEMINI_PREFIX = "gemini:";
-    @Value("${mentor.llm.gemini-base:https://generativelanguage.googleapis.com/v1beta/openai}")
     private String geminiBase = "https://generativelanguage.googleapis.com/v1beta/openai";
-    @Value("${mentor.llm.gemini-key:}")
     private String geminiKey = "";
     /** Groq's free tier allows about 8k tokens per minute and model, so long chats are trimmed for it. */
     private static final int GROQ_CHAR_BUDGET = 10_000;
@@ -51,30 +46,38 @@ final class MentorModel {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
     private final ObjectMapper json;
     private final String base;
-    @Value("${mentor.llm.transcription-model}")
     private String transcriptionModel = "";
-    @Value("${mentor.llm.groq-key}")
     private String groqKey = "";
-    @Value("${mentor.llm.fallback-models}")
     private String fallbackModels = "";
-    @Value("${mentor.llm.review-models:}")
     private String reviewModels = "";
-    @Value("${mentor.llm.router-models:}")
     private String routerModels = "";
     private static final String DEFAULT_PLAN_MODELS =
             "gemini:gemini-3.6-flash,nvidia/nemotron-3.5-super-vl:free,nvidia/nemotron-3-ultra-550b-a55b:free";
-    @Value("${mentor.llm.plan-models:" + DEFAULT_PLAN_MODELS + "}")
     private String planModels = DEFAULT_PLAN_MODELS;
     private final String model;
     private final String key;
     private String groqBase = GROQ_BASE;
 
-    MentorModel(ObjectMapper json, @Value("${mentor.llm.base-url}") String base,
-                @Value("${mentor.llm.model}") String model, @Value("${mentor.llm.key}") String key) {
+    MentorModel(ObjectMapper json, String base, String model, String key) {
         this.json = json;
         this.base = base.replaceAll("/+$", "");
         this.model = model;
         this.key = key;
+    }
+
+    /** The model from LLM_BASE_URL / LLM_MODEL / LLM_API_KEY plus the optional chains and keys. */
+    static MentorModel fromEnv(ObjectMapper json, Env env) {
+        var model = new MentorModel(json, env.get("LLM_BASE_URL", "http://localhost:11434/v1"), env.get("LLM_MODEL"),
+                env.get("LLM_API_KEY"));
+        model.geminiBase = env.get("LLM_GEMINI_BASE", model.geminiBase);
+        model.geminiKey = env.get("GEMINI_API_KEY");
+        model.transcriptionModel = env.get("MENTOR_TRANSCRIPTION_MODEL");
+        model.groqKey = env.get("GROQ_API_KEY");
+        model.fallbackModels = env.get("LLM_FALLBACK_MODELS");
+        model.reviewModels = env.get("LLM_REVIEW_MODELS");
+        model.routerModels = env.get("LLM_ROUTER_MODELS");
+        model.planModels = env.get("LLM_PLAN_MODELS", DEFAULT_PLAN_MODELS);
+        return model;
     }
 
     boolean enabled() {

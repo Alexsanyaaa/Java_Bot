@@ -8,8 +8,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -25,8 +23,8 @@ class OptionalTailTest {
     @Test
     void todaysLessonComesFirstAndTheOldOneIsOptional() {
         var json = JsonMapper.builder().build();
-        var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+        var store = new StateStore(new Database(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
         var planner = new Planner();
         var bot = new MentorBot(store, planner, new TelegramApi(json, "", "", 0),
                 new MentorModel(json, "http://127.0.0.1:1", "test", ""), Clock.fixed(NEXT_NOON, ZoneOffset.UTC), "", "", "");
@@ -81,8 +79,8 @@ class OptionalTailTest {
     @Test
     void anUntouchedDayTailSaysOneStepSavesTheDay() {
         var json = JsonMapper.builder().build();
-        var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+        var store = new StateStore(new Database(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
         var planner = new Planner();
         var bot = new MentorBot(store, planner, new TelegramApi(json, "", "", 0),
                 new MentorModel(json, "http://127.0.0.1:1", "test", ""), Clock.fixed(NEXT_NOON, ZoneOffset.UTC), "", "", "");

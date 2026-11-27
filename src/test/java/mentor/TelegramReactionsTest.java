@@ -16,9 +16,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -199,7 +196,7 @@ class TelegramReactionsTest {
         var json = JsonMapper.builder().build();
         var model = new MentorModel(json, System.getenv("LLM_BASE_URL"), System.getenv("LLM_MODEL"),
                 System.getenv().getOrDefault("LLM_API_KEY", ""));
-        ReflectionTestUtils.setField(model, "geminiKey", System.getenv("GEMINI_API_KEY"));
+        TestFields.set(model, "geminiKey", System.getenv("GEMINI_API_KEY"));
         var reply = model.talk("Я наконец-то сам починил гонку: воспроизвёл её тестом, добавил synchronized, "
                 + "тест теперь стабильно проходит. Можешь отреагировать на сообщение подходящей реакцией?",
                 List.of(), "Обычный разговор. Зачёт заданий не меняется.", "", false);
@@ -217,7 +214,7 @@ class TelegramReactionsTest {
         final AtomicReference<String> output = new AtomicReference<>("Привет.");
         final AtomicBoolean rejectReaction = new AtomicBoolean();
         final HttpServer server;
-        final JdbcTemplate jdbc;
+        final Database jdbc;
         final MentorModel model;
         final TelegramApi telegram;
         StateStore store;
@@ -249,8 +246,8 @@ class TelegramReactionsTest {
             });
             server.start();
             String base = "http://localhost:" + server.getAddress().getPort();
-            jdbc = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID()
-                    + ";DB_CLOSE_DELAY=-1", "sa", ""));
+            jdbc = new Database("jdbc:h2:mem:" + UUID.randomUUID()
+                    + ";DB_CLOSE_DELAY=-1", "sa", "");
             model = new MentorModel(json, base + "/v1", "test-model", "");
             telegram = new TelegramApi(json, base, "fake", 123);
             restart(NOW);

@@ -16,8 +16,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -90,8 +88,8 @@ class RealChatRegressionTest {
         server.start();
         try {
             String base = "http://localhost:" + server.getAddress().getPort();
-            var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+            var store = new StateStore(new Database(
+                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
             var planner = new Planner();
             store.write(state -> {
                 planner.resetStudy(state, Planner.date(state, EVENING), EVENING);
@@ -268,8 +266,8 @@ class RealChatRegressionTest {
 
         var json = JsonMapper.builder().build();
         planner.resetStudy(state, Planner.date(state, EVENING), EVENING);
-        var bot = new MentorBot(new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json), planner,
+        var bot = new MentorBot(new StateStore(new Database(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json), planner,
                 new TelegramApi(json, "http://127.0.0.1:1", "", 0), new MentorModel(json, "http://127.0.0.1:1", "", ""),
                 Clock.fixed(EVENING, ZoneOffset.UTC), "", "", "");
         var start = bot.respond(state, "/startnow", "", EVENING);
@@ -300,8 +298,8 @@ class RealChatRegressionTest {
         server.start();
         try {
             String base = "http://localhost:" + server.getAddress().getPort();
-            var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+            var store = new StateStore(new Database(
+                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
             var planner = new Planner();
             Instant evening = Instant.parse("2026-11-18T18:40:00Z"); // 21:40 Moscow, a reminder is due
             store.write(state -> {

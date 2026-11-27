@@ -5,7 +5,6 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Manual live check of lesson reviews on real submissions. Runs only with MENTOR_LIVE_REVIEW set to an output file. */
@@ -70,9 +69,9 @@ class LiveReviewTest {
         var json = JsonMapper.builder().build();
         var model = new MentorModel(json, env("LLM_BASE_URL", "https://openrouter.ai/api/v1"), env("LLM_MODEL", ""),
                 env("LLM_API_KEY", ""));
-        ReflectionTestUtils.setField(model, "groqKey", env("GROQ_API_KEY", ""));
-        ReflectionTestUtils.setField(model, "fallbackModels", env("LLM_FALLBACK_MODELS", ""));
-        ReflectionTestUtils.setField(model, "reviewModels", env("LLM_REVIEW_MODELS", ""));
+        TestFields.set(model, "groqKey", env("GROQ_API_KEY", ""));
+        TestFields.set(model, "fallbackModels", env("LLM_FALLBACK_MODELS", ""));
+        TestFields.set(model, "reviewModels", env("LLM_REVIEW_MODELS", ""));
         var state = new MentorState();
         var chosen = new java.util.HashSet<Integer>(List.of(1, 20, 121, 49, 704, 347, 217, 11));
         var algorithm = LearningCatalog.nextAlgorithm(state, chosen);

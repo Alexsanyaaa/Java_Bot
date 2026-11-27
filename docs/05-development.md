@@ -26,7 +26,8 @@ export JAVA_HOME="/c/Users/467/AppData/Local/Programs/Java/jdk-21.0.12.1+1"
 
 ```
 src/main/java/mentor/     код бота (описание классов — 02-architecture.md)
-src/main/resources/       application.properties: имена переменных окружения
+src/main/resources/       simplelogger.properties (формат логов); переменные окружения читает Env/MentorApplication
+src/main/resources/META-INF/native-image/  метаданные для native image (пишет агент, см. 09-native-image.md)
 src/test/java/mentor/     тесты
 docs/                     документация; docs/tools/extract_prompts.py — выгрузка промптов
 android/                  Mentor Focus (Android, сборка: android/build-apk.sh)
@@ -50,6 +51,7 @@ deploy/systemd/           служба, сторож памяти, таймер 
 | `LiveConversationTest` | **Живой** прогон диалога на настоящих моделях (пропускается без переменных) |
 | `LiveReviewTest` | **Живая** проверка ответов (`MENTOR_LIVE_REVIEW`) |
 | `ProductionCopyDryRunTest` | Прогон логики на копии прод-базы (`MENTOR_DRYRUN_DB=путь`) |
+| `PlainStartupTest` | Запуск без Spring: настройки из окружения, файловая база переживает перезапуск, самопроверка `--check` |
 
 Фейковые модели в тестах узнают тип запроса по кускам промпта: `классификатор`, `"steps"`,
 `вопрос с собеседования`, `Сейчас особая задача`. Поменял эти слова в промпте — поправь тесты.

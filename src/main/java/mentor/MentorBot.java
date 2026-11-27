@@ -24,12 +24,8 @@ import mentor.MentorState.Task;
 import mentor.TelegramApi.Button;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
-@Component
 final class MentorBot {
     private static final Logger LOG = LoggerFactory.getLogger(MentorBot.class);
     private static final Pattern DIRECT_SUBMISSION = Pattern.compile(
@@ -93,12 +89,17 @@ final class MentorBot {
     private final String projectPdf;
     private final String springPdf;
     private final String t04bSsh;
-    @Value("${mentor.t04b.local-repo}")
     private String localProjectRepo = "";
-    @Value("${mentor.study.reset-from}")
     private String resetStudyFrom = "";
 
-    @jakarta.annotation.PostConstruct
+    /** Settings the tests leave at their defaults: MENTOR_T04B_LOCAL_REPO and MENTOR_STUDY_RESET_FROM. */
+    MentorBot configure(Env env) {
+        localProjectRepo = env.get("MENTOR_T04B_LOCAL_REPO");
+        resetStudyFrom = env.get("MENTOR_STUDY_RESET_FROM");
+        return this;
+    }
+
+    /** Run once at start, before the schedules. */
     void applyStudyReset() {
         if (!resetStudyFrom.isBlank()) {
             LocalDate date = LocalDate.parse(resetStudyFrom);
@@ -113,7 +114,6 @@ final class MentorBot {
     private final java.util.concurrent.atomic.AtomicBoolean planning = new java.util.concurrent.atomic.AtomicBoolean();
     private volatile Instant nextPlanAttempt = Instant.EPOCH;
 
-    @Scheduled(initialDelay = 5000, fixedDelay = 60_000)
     void refreshAiPlan() {
         Instant now = clock.instant();
         if (!telegram.enabled() || !model.planningEnabled() || now.isBefore(nextPlanAttempt)) return;
@@ -137,9 +137,7 @@ final class MentorBot {
     }
 
     MentorBot(StateStore store, Planner planner, TelegramApi telegram, MentorModel model, Clock clock,
-              @Value("${mentor.material.project}") String projectPdf,
-              @Value("${mentor.material.spring}") String springPdf,
-              @Value("${mentor.t04b.clone-url}") String t04bSsh) {
+              String projectPdf, String springPdf, String t04bSsh) {
         this.store = store;
         this.planner = planner;
         this.telegram = telegram;
@@ -173,7 +171,6 @@ final class MentorBot {
         return true;
     }
 
-    @Scheduled(fixedDelay = 1000)
     void poll() {
         if (!telegram.enabled()) {
             return;
@@ -215,7 +212,6 @@ final class MentorBot {
         }
     }
 
-    @Scheduled(fixedDelay = 8000)
     void reminders() {
         if (!telegram.enabled()) {
             return;
@@ -268,7 +264,6 @@ final class MentorBot {
         }
     }
 
-    @Scheduled(fixedDelay = 5000)
     void review() {
         Instant now = clock.instant();
         if (!telegram.enabled() || !model.enabled() || now.isBefore(nextReview)) {

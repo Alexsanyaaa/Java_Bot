@@ -17,9 +17,6 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -67,8 +64,8 @@ class LiveConversationTest {
         var transcript = new StringBuilder();
         try {
             Instant now = Instant.parse("2026-11-19T17:00:00Z"); // 20:00 Moscow
-            var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+            var store = new StateStore(new Database(
+                    "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
             var planner = new Planner();
             store.write(state -> {
                 planner.resetStudy(state, Planner.date(state, now), now);
@@ -84,11 +81,11 @@ class LiveConversationTest {
             });
             var model = new MentorModel(json, env("LLM_BASE_URL", "https://openrouter.ai/api/v1"), env("LLM_MODEL", ""),
                     env("LLM_API_KEY", ""));
-            ReflectionTestUtils.setField(model, "groqKey", env("GROQ_API_KEY", ""));
-            ReflectionTestUtils.setField(model, "geminiKey", env("GEMINI_API_KEY", ""));
-            ReflectionTestUtils.setField(model, "fallbackModels", env("LLM_FALLBACK_MODELS", ""));
-            ReflectionTestUtils.setField(model, "reviewModels", env("LLM_REVIEW_MODELS", ""));
-            ReflectionTestUtils.setField(model, "routerModels", env("LLM_ROUTER_MODELS", ""));
+            TestFields.set(model, "groqKey", env("GROQ_API_KEY", ""));
+            TestFields.set(model, "geminiKey", env("GEMINI_API_KEY", ""));
+            TestFields.set(model, "fallbackModels", env("LLM_FALLBACK_MODELS", ""));
+            TestFields.set(model, "reviewModels", env("LLM_REVIEW_MODELS", ""));
+            TestFields.set(model, "routerModels", env("LLM_ROUTER_MODELS", ""));
             var bot = new MentorBot(store, planner, new TelegramApi(json, "http://localhost:" + server.getAddress().getPort(),
                     "fake", 123), model, Clock.fixed(now, ZoneOffset.UTC), "", "", "");
             long id = 1;

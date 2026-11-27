@@ -34,3 +34,4 @@
 | [docs/06-troubleshooting.md](docs/06-troubleshooting.md) | Поломки: симптом → причина → где смотреть → как чинить |
 | [docs/07-history.md](docs/07-history.md) | История решений и инцидентов: почему сделано именно так |
 | [docs/08-prompts-verbatim.md](docs/08-prompts-verbatim.md) | Все промпты дословно (собирается скриптом из кода) |
+| [docs/09-native-image.md](docs/09-native-image.md) | Сборка native image на Linux Mint, проверка, выкладка и откат |

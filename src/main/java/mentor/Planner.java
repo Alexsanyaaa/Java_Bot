@@ -16,9 +16,7 @@ import java.util.Set;
 import mentor.MentorState.Lesson;
 import mentor.MentorState.Project;
 import mentor.MentorState.Task;
-import org.springframework.stereotype.Component;
 
-@Component
 final class Planner {
     static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("dd.MM HH:mm");
     static final Duration BEFORE = Duration.ofMinutes(15);

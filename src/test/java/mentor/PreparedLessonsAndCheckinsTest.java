@@ -17,8 +17,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -263,8 +261,8 @@ class PreparedLessonsAndCheckinsTest {
         assertThat(ProjectCheckins.pending(state, ping.sentAt)).isNull();
     }
 
-    private static JdbcTemplate jdbc() {
-        return new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""));
+    private static Database jdbc() {
+        return new Database("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
     }
 
     private static Map<String, Object> message(long id, String text) {

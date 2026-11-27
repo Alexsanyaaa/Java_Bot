@@ -10,8 +10,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import tools.jackson.databind.json.JsonMapper;
 
 /** In free mode the study day runs until 04:00 Moscow time, not midnight (requested on 2026-11-21). */
@@ -24,8 +22,8 @@ class DayBoundaryTest {
     @Test
     void lessonStaysOpenUntilFourInTheMorning() {
         var json = JsonMapper.builder().build();
-        var store = new StateStore(new JdbcTemplate(new DriverManagerDataSource(
-                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "")), json);
+        var store = new StateStore(new Database(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""), json);
         var planner = new Planner();
         var bot = new MentorBot(store, planner, new TelegramApi(json, "", "", 0),
                 new MentorModel(json, "http://127.0.0.1:1", "test", ""), Clock.fixed(EVENING, ZoneOffset.UTC), "", "", "");
